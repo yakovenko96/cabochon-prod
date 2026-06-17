@@ -16,11 +16,6 @@
         <field name="implied_ids" eval="[(4, ref('group_cabochon_user'))]"/>
     </record>
 
-    <record id="group_cabochon_supervisor" model="res.groups">
-        <field name="name">Кабошоны: контролер</field>
-        <field name="implied_ids" eval="[(4, ref('group_cabochon_user'))]"/>
-    </record>
-
     <record id="group_cabochon_manager" model="res.groups">
         <field name="name">Кабошоны: менеджер склада</field>
         <field name="implied_ids" eval="[(4, ref('group_cabochon_user'))]"/>

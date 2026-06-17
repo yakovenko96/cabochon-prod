@@ -1,31 +1,23 @@
 # Cabochon Odoo
 
 Кастомизация Odoo 19 Community для учета изготовления кабошонов: партии и
-мешки камней, складские зоны, последовательные операции, назначение работников,
-выдача и сдача материалов, брак, потери, этикетки, уведомления, отчеты и
-неизменяемый журнал движений.
-
-Главное меню Odoo:
-
-```text
-Кабошоны
-```
+мешки камней, складские зоны, операции, назначения работников, выдачи/сдачи,
+брак, потери, этикетки, уведомления, отчеты и неизменяемый журнал движений.
 
 Перед работой с проектом читайте [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
 
-## Структура проекта
+## Структура
 
 ```text
 addons/
   cabochon_base/
   cabochon_manufacturing/
-
 scripts/
   install_cabochon_modules.ps1
-
-PROJECT_CONTEXT.md
 AGENTS.md
-SYSTEM_FUNCTIONS.md
+PROJECT_CONTEXT.md
+README.md
+pyproject.toml
 ```
 
 Активные модули:
@@ -35,7 +27,21 @@ cabochon_base
 cabochon_manufacturing
 ```
 
-## Локальный Odoo
+## Локальный запуск
+
+Docker Compose находится здесь:
+
+```text
+C:\Users\Asus\data\odoo-local\docker-compose.yml
+```
+
+Запуск:
+
+```powershell
+cd C:\Users\Asus\data\odoo-local
+docker compose up -d
+docker compose ps
+```
 
 Веб-интерфейс:
 
@@ -49,218 +55,77 @@ http://127.0.0.1:8069/
 Cabachon
 ```
 
-Файл Docker Compose:
+Рабочий каталог проекта:
 
 ```text
-C:\Users\Asus\data\odoo-local\docker-compose.yml
+C:\Users\Asus\data\cabochon-prod
 ```
 
-Ожидаемое подключение addons:
+Ожидаемое подключение custom addons:
 
 ```yaml
 volumes:
-  - odoo-web-data:/var/lib/odoo
-  - ./config:/etc/odoo
-  - C:/Users/Asus/data/cabochon-odoo/addons:/mnt/extra-addons
-```
-
-Ожидаемый `addons_path`:
-
-```ini
-addons_path = /usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons
+  - C:/Users/Asus/data/cabochon-prod/addons:/mnt/extra-addons
 ```
 
 ## Команды
 
-Запустить локальный Odoo:
-
-```powershell
-cd C:\Users\Asus\data\odoo-local
-docker compose up -d
-docker compose ps
-```
-
 Обновить активные модули:
 
 ```powershell
-cd C:\Users\Asus\data\cabochon-odoo
 docker exec odoo19-web odoo -d Cabachon -u cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
-docker compose -f C:\Users\Asus\data\odoo-local\docker-compose.yml restart odoo
 ```
 
-Установить или обновить через helper-скрипт:
+Установить активные модули:
+
+```powershell
+docker exec odoo19-web odoo -d Cabachon -i cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
+```
+
+Helper-скрипт:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install_cabochon_modules.ps1 -Database Cabachon
 ```
 
-Проверить стиль Python:
+Перезапустить Odoo:
+
+```powershell
+docker compose -f C:\Users\Asus\data\odoo-local\docker-compose.yml restart odoo
+```
+
+Проверки:
 
 ```powershell
 python -m ruff check addons/cabochon_base addons/cabochon_manufacturing scripts
+python -m compileall -q addons/cabochon_base addons/cabochon_manufacturing scripts
 ```
 
-## Основные модули
+Odoo-тесты Cabochon base:
 
-### cabochon_base
-
-Модуль содержит:
-
-- корневое меню Кабошонов;
-- группы доступа;
-- базовые справочники;
-- поля Cabochon на шаблоне продукта;
-- журнал аудита;
-- защиту действий `mail.activity` для документов Кабошонов.
-
-Ключевые группы:
-
-```text
-group_cabochon_user
-group_cabochon_manager
-group_cabochon_workshop_manager
-group_cabochon_finished_manager
-group_cabochon_admin
+```powershell
+docker exec odoo19-web odoo -d Cabachon -u cabochon_base,cabochon_manufacturing --test-enable --test-tags /cabochon_base --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --http-port 8070
 ```
 
-### cabochon_manufacturing
+## Модули
 
-Модуль содержит:
+`cabochon_base` содержит меню, группы доступа, справочники, Cabochon-поля
+продуктов, журнал действий и защиту `mail.activity`.
 
-- производственные операции;
-- складские зоны;
-- справочники годов добычи и фракций;
-- партии/мешки камней;
-- внешний приход сырья и подготовленного сырья;
-- заявки технолога на изготовление;
-- документы выдачи и сдачи материалов;
-- строки документов с автоматическим расчетом потерь;
-- неизменяемый журнал движений;
-- мастер корректировок;
-- допуски работников к операциям;
-- панель нагрузки работников;
-- отчет по браку и потерям;
-- этикетки A6.
+`cabochon_manufacturing` содержит операции, складские зоны, мешки, внешний
+приход, заявки, выдачи/сдачи, движения, корректировки, отчеты и этикетки.
 
 ## Основной процесс
 
-1. Менеджер склада создает внешний приход сырья или подготовленного сырья.
-2. Система создает мешок и начальное движение прихода.
-3. Технолог создает заявку на одну или несколько операций.
-4. Выбор работника ограничен допусками работника к операциям.
-5. Подтверждение заявки создает документ выдачи для менеджера исходного склада.
-6. Подтверждение выдачи переносит вес на личный склад работника. При частичной
-   выдаче создается дочерний мешок.
-7. Заявка автоматически переходит в работу и запускает первую операцию.
-8. Система создает черновик сдачи для менеджера склада назначения.
-9. В строках сдачи вводятся годный вес и вес брака, а потери считаются как
-   `weight_before_g - weight_g - defect_weight_g`.
-10. Подтверждение сдачи создает движения прихода, брака и потерь.
-11. Подтвержденные движения нельзя менять или удалять. Исправления делаются
-    отдельными корректирующими движениями.
+1. Менеджер склада оформляет внешний приход.
+2. Технолог создает заявку на операции и выбирает работника.
+3. Подтверждение заявки создает выдачу.
+4. Подтверждение выдачи переносит вес на личный склад работника.
+5. Сдача фиксирует годный вес, брак и потери.
+6. Подтверждение сдачи создает неизменяемые движения и результирующие мешки.
+7. Ошибки исправляются корректирующими движениями, а не изменением истории.
 
-## Справочники
+## Документация
 
-Годы добычи по умолчанию:
-
-```text
-2020-2027
-```
-
-Фракции по умолчанию:
-
-```text
-5, 6, 7, 8
-```
-
-Работники не видят справочники. Менеджер сырья/подготовки/полуфабрикатов может
-вести годы добычи, фракции и тип сырья. Технолог и администратор могут вести все
-справочники. Менеджер готового склада справочники не видит.
-
-## Статусы
-
-Заявки:
-
-```text
-Новая
-Ожидает выдачи
-Выдано
-В работе
-Частично сдано
-Закрыта
-Отменена
-```
-
-Выдачи и сдачи:
-
-```text
-Ожидает обработки
-Подтверждено
-```
-
-В списках активные и ожидающие документы показываются выше подтвержденных и
-закрытых.
-
-## Уведомления
-
-Менеджеры складов получают действия по новым выдачам и сдачам, назначенным на
-них.
-
-Технологи получают действия по просроченным заявкам. Cron просрочки запускается
-каждые 15 минут:
-
-```text
-Кабошоны: уведомления о просроченных заявках
-```
-
-Действия по выдаче/сдаче автоматически удаляются после подтверждения или
-удаления черновика. Действия по просрочке удаляются после закрытия, отмены или
-устранения просрочки.
-
-## Отчеты
-
-Доступные отчеты:
-
-- `Журнал движений`;
-- `Брак и потери по сотрудникам и операциям`;
-- `Время операций`;
-- `Панель технолога`.
-
-Где применимо, отчеты используют list, pivot и graph views.
-
-## Этикетки
-
-Этикетки мешков печатаются в PDF с форматом A6:
-
-```text
-105mm x 148mm
-```
-
-## Проверка
-
-Быстрые проверки базы:
-
-```powershell
-docker exec odoo19-db psql -U odoo -d Cabachon -c "select count(*) from cabochon_manufacturing_operation;"
-docker exec odoo19-db psql -U odoo -d Cabachon -c "select count(*) from cabochon_manufacturing_location;"
-docker exec odoo19-db psql -U odoo -d Cabachon -c "select count(*) from cabochon_stone_lot;"
-docker exec odoo19-db psql -U odoo -d Cabachon -c "select count(*) from cabochon_manufacturing_movement;"
-```
-
-Последний полный бизнес-прогон записан в
-[PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
-
-## Нормы потерь, качество и история мешка
-
-В карточке операции есть поле `Норма потерь, %`. При подтверждении сдачи
-движение потерь запоминает исходный вес строки, считает фактический процент
-потерь и сравнивает его с нормой операции. Если факт выше нормы, движение
-подсвечивается в журнале, а технолог получает уведомление `Потери выше нормы`.
-
-Отчет `Качество по работникам и операциям` показывает по каждой паре
-работник/операция: выданный вес, сданный годный вес, брак, потери, процент
-брака, процент потерь, общий процент брака и потерь, норму потерь и процент
-сверх нормы.
-
-На карточке мешка кнопка `История маршрута` открывает движения по всей цепочке:
-выбранный мешок, его родительские мешки и дочерние мешки.
+Актуальные детали бизнес-правил, ролей, моделей и последних проверок находятся
+в [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
