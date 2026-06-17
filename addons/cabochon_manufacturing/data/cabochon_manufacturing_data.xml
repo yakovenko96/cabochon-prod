@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="seq_cabochon_stone_lot" model="ir.sequence">
+        <field name="name">Кабошоны: мешок</field>
+        <field name="code">cabochon.stone.lot</field>
+        <field name="prefix">BAG/%(year)s/</field>
+        <field name="padding">5</field>
+    </record>
+
+    <record id="seq_cabochon_production_request" model="ir.sequence">
+        <field name="name">Кабошоны: заявка изготовления</field>
+        <field name="code">cabochon.production.request</field>
+        <field name="prefix">REQ/%(year)s/</field>
+        <field name="padding">5</field>
+    </record>
+
+    <record id="seq_cabochon_material_transfer" model="ir.sequence">
+        <field name="name">Кабошоны: выдача/сдача</field>
+        <field name="code">cabochon.material.transfer</field>
+        <field name="prefix">TRF/%(year)s/</field>
+        <field name="padding">5</field>
+    </record>
+
+    <record id="seq_cabochon_manufacturing_movement" model="ir.sequence">
+        <field name="name">Кабошоны: движение изготовления</field>
+        <field name="code">cabochon.manufacturing.movement</field>
+        <field name="prefix">MOV/%(year)s/</field>
+        <field name="padding">6</field>
+    </record>
+
+    <record id="extraction_year_2020" model="cabochon.extraction.year">
+        <field name="name">2020</field>
+        <field name="year">2020</field>
+    </record>
+    <record id="extraction_year_2021" model="cabochon.extraction.year">
+        <field name="name">2021</field>
+        <field name="year">2021</field>
+    </record>
+    <record id="extraction_year_2022" model="cabochon.extraction.year">
+        <field name="name">2022</field>
+        <field name="year">2022</field>
+    </record>
+    <record id="extraction_year_2023" model="cabochon.extraction.year">
+        <field name="name">2023</field>
+        <field name="year">2023</field>
+    </record>
+    <record id="extraction_year_2024" model="cabochon.extraction.year">
+        <field name="name">2024</field>
+        <field name="year">2024</field>
+    </record>
+    <record id="extraction_year_2025" model="cabochon.extraction.year">
+        <field name="name">2025</field>
+        <field name="year">2025</field>
+    </record>
+    <record id="extraction_year_2026" model="cabochon.extraction.year">
+        <field name="name">2026</field>
+        <field name="year">2026</field>
+    </record>
+    <record id="extraction_year_2027" model="cabochon.extraction.year">
+        <field name="name">2027</field>
+        <field name="year">2027</field>
+    </record>
+
+    <record id="fraction_5" model="cabochon.fraction">
+        <field name="name">5</field>
+        <field name="sequence">5</field>
+    </record>
+    <record id="fraction_6" model="cabochon.fraction">
+        <field name="name">6</field>
+        <field name="sequence">6</field>
+    </record>
+    <record id="fraction_7" model="cabochon.fraction">
+        <field name="name">7</field>
+        <field name="sequence">7</field>
+    </record>
+    <record id="fraction_8" model="cabochon.fraction">
+        <field name="name">8</field>
+        <field name="sequence">8</field>
+    </record>
+
+    <record id="ir_cron_cabochon_overdue_requests" model="ir.cron">
+        <field name="name">Кабошоны: уведомления о просроченных заявках</field>
+        <field name="model_id" ref="model_cabochon_production_request"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_notify_overdue_requests()</field>
+        <field name="interval_number">15</field>
+        <field name="interval_type">minutes</field>
+        <field name="active">True</field>
+    </record>
+
+    <record id="location_raw" model="cabochon.manufacturing.location">
+        <field name="name">Склад сырья</field>
+        <field name="code">raw</field>
+        <field name="sequence">10</field>
+    </record>
+    <record id="location_prepared" model="cabochon.manufacturing.location">
+        <field name="name">Склад подготовленного сырья</field>
+        <field name="code">prepared</field>
+        <field name="sequence">20</field>
+    </record>
+    <record id="location_semi_finished" model="cabochon.manufacturing.location">
+        <field name="name">Склад полуфабрикатов</field>
+        <field name="code">semi_finished</field>
+        <field name="sequence">30</field>
+    </record>
+    <record id="location_finished" model="cabochon.manufacturing.location">
+        <field name="name">Склад готовых камней</field>
+        <field name="code">finished</field>
+        <field name="sequence">40</field>
+    </record>
+    <record id="location_loss" model="cabochon.manufacturing.location">
+        <field name="name">Потери и списания</field>
+        <field name="code">loss</field>
+        <field name="sequence">99</field>
+    </record>
+
+    <record id="operation_tumble_wash" model="cabochon.manufacturing.operation">
+        <field name="name">Помывка в галтовке</field>
+        <field name="code">tumble_wash</field>
+        <field name="sequence">10</field>
+        <field name="warehouse_stage">prepared</field>
+    </record>
+    <record id="operation_toluene_wash" model="cabochon.manufacturing.operation">
+        <field name="name">Помывка в толуоле</field>
+        <field name="code">toluene_wash</field>
+        <field name="sequence">20</field>
+        <field name="warehouse_stage">prepared</field>
+    </record>
+    <record id="operation_auto_separator" model="cabochon.manufacturing.operation">
+        <field name="name">Авто (сепаратор)</field>
+        <field name="code">auto_separator</field>
+        <field name="sequence">30</field>
+        <field name="warehouse_stage">prepared</field>
+        <field name="creates_split_lots">1</field>
+    </record>
+    <record id="operation_manual_sorting" model="cabochon.manufacturing.operation">
+        <field name="name">Ручная сортировка</field>
+        <field name="code">manual_sorting</field>
+        <field name="sequence">40</field>
+        <field name="warehouse_stage">prepared</field>
+        <field name="creates_split_lots">1</field>
+    </record>
+    <record id="operation_stone_preparation" model="cabochon.manufacturing.operation">
+        <field name="name">Подготовка камня</field>
+        <field name="code">stone_preparation</field>
+        <field name="sequence">50</field>
+        <field name="warehouse_stage">prepared</field>
+    </record>
+    <record id="operation_press" model="cabochon.manufacturing.operation">
+        <field name="name">Пресс</field>
+        <field name="code">press</field>
+        <field name="sequence">60</field>
+        <field name="warehouse_stage">semi_finished</field>
+    </record>
+    <record id="operation_normalization" model="cabochon.manufacturing.operation">
+        <field name="name">Нормализация</field>
+        <field name="code">normalization</field>
+        <field name="sequence">70</field>
+        <field name="warehouse_stage">semi_finished</field>
+    </record>
+    <record id="operation_cabochon_machine" model="cabochon.manufacturing.operation">
+        <field name="name">Кабошонерка</field>
+        <field name="code">cabochon_machine</field>
+        <field name="sequence">80</field>
+        <field name="warehouse_stage">semi_finished</field>
+    </record>
+    <record id="operation_ball_machine" model="cabochon.manufacturing.operation">
+        <field name="name">Шарокрутка</field>
+        <field name="code">ball_machine</field>
+        <field name="sequence">90</field>
+        <field name="warehouse_stage">semi_finished</field>
+    </record>
+    <record id="operation_cnc" model="cabochon.manufacturing.operation">
+        <field name="name">ЧПУ</field>
+        <field name="code">cnc</field>
+        <field name="sequence">100</field>
+        <field name="warehouse_stage">semi_finished</field>
+    </record>
+    <record id="operation_grinding_polishing" model="cabochon.manufacturing.operation">
+        <field name="name">Шлифовка/Полировка</field>
+        <field name="code">grinding_polishing</field>
+        <field name="sequence">110</field>
+        <field name="warehouse_stage">semi_finished</field>
+        <field name="final_operation">1</field>
+        <field name="accepts_weighed_defect">0</field>
+    </record>
+    <record id="operation_husking" model="cabochon.manufacturing.operation">
+        <field name="name">Лузговка</field>
+        <field name="code">husking</field>
+        <field name="sequence">120</field>
+        <field name="warehouse_stage">semi_finished</field>
+        <field name="final_operation">1</field>
+        <field name="accepts_weighed_defect">0</field>
+    </record>
+    <record id="operation_sorting" model="cabochon.manufacturing.operation">
+        <field name="name">Сортировка</field>
+        <field name="code">sorting</field>
+        <field name="sequence">130</field>
+        <field name="warehouse_stage">semi_finished</field>
+        <field name="creates_split_lots">1</field>
+        <field name="final_operation">1</field>
+        <field name="accepts_weighed_defect">0</field>
+        <field name="active">0</field>
+    </record>
+    <record id="operation_drilling" model="cabochon.manufacturing.operation">
+        <field name="name">Сверление</field>
+        <field name="code">drilling</field>
+        <field name="sequence">140</field>
+        <field name="warehouse_stage">semi_finished</field>
+        <field name="final_operation">1</field>
+        <field name="accepts_weighed_defect">0</field>
+    </record>
+    <record id="operation_tinting" model="cabochon.manufacturing.operation">
+        <field name="name">Тонировка</field>
+        <field name="code">tinting</field>
+        <field name="sequence">150</field>
+        <field name="warehouse_stage">semi_finished</field>
+        <field name="final_operation">1</field>
+        <field name="accepts_weighed_defect">0</field>
+    </record>
+</odoo>

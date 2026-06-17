@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_employee_form_cabochon_manufacturing" model="ir.ui.view">
+        <field name="name">hr.employee.form.cabochon.manufacturing</field>
+        <field name="model">hr.employee</field>
+        <field name="inherit_id" ref="hr.view_employee_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Изготовление кабошонов">
+                    <group>
+                        <field name="cabochon_allowed_operation_ids" widget="many2many_tags"/>
+                        <field name="cabochon_active_request_count"/>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

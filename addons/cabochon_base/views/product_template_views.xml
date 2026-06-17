@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_product_template_form_cabochon_base" model="ir.ui.view">
+        <field name="name">product.template.form.cabochon.base</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_only_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='general_information']//group" position="inside">
+                <group string="Кабошоны" invisible="1">
+                    <field name="is_cabochon_stone"/>
+                    <field name="is_cabochon_finished_product"/>
+                    <field name="cabochon_internal_code"/>
+                    <field name="cabochon_stone_type_id" invisible="not is_cabochon_stone"/>
+                    <field name="cabochon_shape_id" invisible="not is_cabochon_stone"/>
+                    <field name="cabochon_color_id" invisible="not is_cabochon_stone"/>
+                    <field name="cabochon_drilled_id" invisible="not is_cabochon_stone"/>
+                    <field name="cabochon_extra_option_ids" widget="many2many_tags" invisible="not is_cabochon_stone"/>
+                    <field name="cabochon_size_id" invisible="not is_cabochon_stone"/>
+                    <field name="cabochon_standard_weight_g" invisible="not is_cabochon_stone"/>
+                    <field name="cabochon_weight_tolerance_percent" invisible="not is_cabochon_stone" required="is_cabochon_stone"/>
+                    <field name="cabochon_weight_tolerance_g" invisible="not is_cabochon_stone" readonly="1"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_cabochon_stones" model="ir.actions.act_window">
+        <field name="name">Камни</field>
+        <field name="res_model">product.template</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('is_cabochon_stone', '=', True)]</field>
+        <field name="context">{'default_is_cabochon_stone': True, 'default_is_storable': True, 'default_type': 'consu'}</field>
+    </record>
+
+    <record id="action_cabochon_finished_products" model="ir.actions.act_window">
+        <field name="name">Готовые изделия</field>
+        <field name="res_model">product.template</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('is_cabochon_finished_product', '=', True)]</field>
+        <field name="context">{'default_is_cabochon_finished_product': True, 'default_is_storable': True, 'default_type': 'consu'}</field>
+    </record>
+
+    <menuitem id="menu_cabochon_products" name="Номенклатура" parent="cabochon_base.menu_cabochon_root" sequence="10" groups="cabochon_base.group_cabochon_admin"/>
+    <menuitem id="menu_cabochon_stones" name="Камни" parent="menu_cabochon_products" action="action_cabochon_stones" sequence="10"/>
+    <menuitem id="menu_cabochon_finished_products" name="Готовые изделия" parent="menu_cabochon_products" action="action_cabochon_finished_products" sequence="20"/>
+
+    <record id="menu_cabochon_products" model="ir.ui.menu">
+        <field name="active">0</field>
+        <field name="group_ids" eval="[(6, 0, [ref('cabochon_base.group_cabochon_admin')])]"/>
+    </record>
+
+    <record id="menu_cabochon_stones" model="ir.ui.menu">
+        <field name="active">0</field>
+    </record>
+
+    <record id="menu_cabochon_finished_products" model="ir.ui.menu">
+        <field name="active">0</field>
+    </record>
+
+</odoo>

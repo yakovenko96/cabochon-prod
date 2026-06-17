@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="rule_cabochon_location_user_personal" model="ir.rule">
+        <field name="name">Cabochon locations: personal locations</field>
+        <field name="model_id" ref="model_cabochon_manufacturing_location"/>
+        <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_user'))]"/>
+    </record>
+
+    <record id="rule_cabochon_location_manager_own" model="ir.rule">
+        <field name="name">Cabochon locations: managed warehouses</field>
+        <field name="model_id" ref="model_cabochon_manufacturing_location"/>
+        <field name="domain_force">['|', ('manager_id.user_id', '=', user.id), ('employee_id.user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_manager')), (4, ref('cabochon_base.group_cabochon_finished_manager'))]"/>
+    </record>
+
+    <record id="rule_cabochon_location_workshop_all" model="ir.rule">
+        <field name="name">Cabochon locations: technologist all</field>
+        <field name="model_id" ref="model_cabochon_manufacturing_location"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_workshop_manager')), (4, ref('cabochon_base.group_cabochon_admin'))]"/>
+    </record>
+
+    <record id="rule_cabochon_lot_user_personal" model="ir.rule">
+        <field name="name">Cabochon lots: personal stock</field>
+        <field name="model_id" ref="model_cabochon_stone_lot"/>
+        <field name="domain_force">[('location_id.employee_id.user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_user'))]"/>
+    </record>
+
+    <record id="rule_cabochon_lot_manager_own" model="ir.rule">
+        <field name="name">Cabochon lots: managed warehouse stock</field>
+        <field name="model_id" ref="model_cabochon_stone_lot"/>
+        <field name="domain_force">[('security_manager_user_ids', 'in', [user.id])]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_manager')), (4, ref('cabochon_base.group_cabochon_finished_manager'))]"/>
+    </record>
+
+    <record id="rule_cabochon_lot_workshop_all" model="ir.rule">
+        <field name="name">Cabochon lots: technologist all stock</field>
+        <field name="model_id" ref="model_cabochon_stone_lot"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_workshop_manager')), (4, ref('cabochon_base.group_cabochon_admin'))]"/>
+    </record>
+
+    <record id="rule_cabochon_request_user_worker" model="ir.rule">
+        <field name="name">Cabochon requests: worker own</field>
+        <field name="model_id" ref="model_cabochon_production_request"/>
+        <field name="domain_force">[('worker_id.user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_user'))]"/>
+    </record>
+
+    <record id="rule_cabochon_request_manager_own_stock" model="ir.rule">
+        <field name="name">Cabochon requests: managed warehouse</field>
+        <field name="model_id" ref="model_cabochon_production_request"/>
+        <field name="domain_force">[('source_lot_id.location_id.manager_id.user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_manager')), (4, ref('cabochon_base.group_cabochon_finished_manager'))]"/>
+    </record>
+
+    <record id="rule_cabochon_request_workshop_all" model="ir.rule">
+        <field name="name">Cabochon requests: technologist all</field>
+        <field name="model_id" ref="model_cabochon_production_request"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_workshop_manager')), (4, ref('cabochon_base.group_cabochon_admin'))]"/>
+    </record>
+
+    <record id="rule_cabochon_request_line_user_worker" model="ir.rule">
+        <field name="name">Cabochon request lines: worker own</field>
+        <field name="model_id" ref="model_cabochon_production_request_operation_line"/>
+        <field name="domain_force">[('request_id.worker_id.user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_user'))]"/>
+    </record>
+
+    <record id="rule_cabochon_request_line_manager_own_stock" model="ir.rule">
+        <field name="name">Cabochon request lines: managed warehouse</field>
+        <field name="model_id" ref="model_cabochon_production_request_operation_line"/>
+        <field name="domain_force">[('request_id.source_lot_id.location_id.manager_id.user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_manager')), (4, ref('cabochon_base.group_cabochon_finished_manager'))]"/>
+    </record>
+
+    <record id="rule_cabochon_request_line_workshop_all" model="ir.rule">
+        <field name="name">Cabochon request lines: technologist all</field>
+        <field name="model_id" ref="model_cabochon_production_request_operation_line"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_workshop_manager')), (4, ref('cabochon_base.group_cabochon_admin'))]"/>
+    </record>
+
+    <record id="rule_cabochon_transfer_user_worker" model="ir.rule">
+        <field name="name">Cabochon transfers: worker own</field>
+        <field name="model_id" ref="model_cabochon_material_transfer"/>
+        <field name="domain_force">[('worker_id.user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_user'))]"/>
+    </record>
+
+    <record id="rule_cabochon_transfer_manager_own_stock" model="ir.rule">
+        <field name="name">Cabochon transfers: managed warehouse</field>
+        <field name="model_id" ref="model_cabochon_material_transfer"/>
+        <field name="domain_force">[('manager_id.user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_manager')), (4, ref('cabochon_base.group_cabochon_finished_manager'))]"/>
+    </record>
+
+    <record id="rule_cabochon_transfer_workshop_all" model="ir.rule">
+        <field name="name">Cabochon transfers: technologist read all</field>
+        <field name="model_id" ref="model_cabochon_material_transfer"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_workshop_manager')), (4, ref('cabochon_base.group_cabochon_admin'))]"/>
+    </record>
+
+    <record id="rule_cabochon_transfer_line_user_worker" model="ir.rule">
+        <field name="name">Cabochon transfer lines: worker own</field>
+        <field name="model_id" ref="model_cabochon_material_transfer_line"/>
+        <field name="domain_force">[('transfer_id.worker_id.user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_user'))]"/>
+    </record>
+
+    <record id="rule_cabochon_transfer_line_manager_own_stock" model="ir.rule">
+        <field name="name">Cabochon transfer lines: managed warehouse</field>
+        <field name="model_id" ref="model_cabochon_material_transfer_line"/>
+        <field name="domain_force">[('transfer_id.manager_id.user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_manager')), (4, ref('cabochon_base.group_cabochon_finished_manager'))]"/>
+    </record>
+
+    <record id="rule_cabochon_transfer_line_workshop_all" model="ir.rule">
+        <field name="name">Cabochon transfer lines: technologist read all</field>
+        <field name="model_id" ref="model_cabochon_material_transfer_line"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_workshop_manager')), (4, ref('cabochon_base.group_cabochon_admin'))]"/>
+    </record>
+
+    <record id="rule_cabochon_movement_user_worker" model="ir.rule">
+        <field name="name">Cabochon movements: worker own</field>
+        <field name="model_id" ref="model_cabochon_manufacturing_movement"/>
+        <field name="domain_force">[('worker_id.user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_user'))]"/>
+    </record>
+
+    <record id="rule_cabochon_movement_manager_own_stock" model="ir.rule">
+        <field name="name">Cabochon movements: managed warehouse</field>
+        <field name="model_id" ref="model_cabochon_manufacturing_movement"/>
+        <field name="domain_force">['|', '|', ('source_location_id.manager_id.user_id', '=', user.id), ('destination_location_id.manager_id.user_id', '=', user.id), ('manager_id.user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_manager')), (4, ref('cabochon_base.group_cabochon_finished_manager'))]"/>
+    </record>
+
+    <record id="rule_cabochon_movement_workshop_all" model="ir.rule">
+        <field name="name">Cabochon movements: technologist read all</field>
+        <field name="model_id" ref="model_cabochon_manufacturing_movement"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_workshop_manager')), (4, ref('cabochon_base.group_cabochon_admin'))]"/>
+    </record>
+</odoo>

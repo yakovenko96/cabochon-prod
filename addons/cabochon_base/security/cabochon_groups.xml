@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="module_category_cabochon" model="ir.module.category">
+        <field name="name">Кабошоны</field>
+        <field name="description">Группы доступа для учета изготовления кабошонов</field>
+        <field name="sequence">35</field>
+    </record>
+
+    <record id="group_cabochon_user" model="res.groups">
+        <field name="name">Кабошоны: пользователь</field>
+        <field name="user_ids" eval="[(4, ref('base.user_admin'))]"/>
+    </record>
+
+    <record id="group_cabochon_fixer" model="res.groups">
+        <field name="name">Кабошоны: работник</field>
+        <field name="implied_ids" eval="[(4, ref('group_cabochon_user'))]"/>
+    </record>
+
+    <record id="group_cabochon_supervisor" model="res.groups">
+        <field name="name">Кабошоны: контролер</field>
+        <field name="implied_ids" eval="[(4, ref('group_cabochon_user'))]"/>
+    </record>
+
+    <record id="group_cabochon_manager" model="res.groups">
+        <field name="name">Кабошоны: менеджер склада</field>
+        <field name="implied_ids" eval="[(4, ref('group_cabochon_user'))]"/>
+    </record>
+
+    <record id="group_cabochon_workshop_manager" model="res.groups">
+        <field name="name">Кабошоны: технолог</field>
+        <field name="implied_ids" eval="[(4, ref('group_cabochon_user'))]"/>
+    </record>
+
+    <record id="group_cabochon_finished_manager" model="res.groups">
+        <field name="name">Кабошоны: менеджер готовых кабошонов</field>
+        <field name="implied_ids" eval="[(4, ref('group_cabochon_user'))]"/>
+    </record>
+
+    <record id="group_cabochon_admin" model="res.groups">
+        <field name="name">Кабошоны: администратор</field>
+        <field name="implied_ids" eval="[(6, 0, [ref('group_cabochon_manager'), ref('group_cabochon_finished_manager'), ref('group_cabochon_workshop_manager')])]"/>
+        <field name="user_ids" eval="[(4, ref('base.user_admin'))]"/>
+    </record>
+</odoo>

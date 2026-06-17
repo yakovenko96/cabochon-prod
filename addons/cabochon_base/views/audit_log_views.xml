@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_cabochon_audit_log_list" model="ir.ui.view">
+        <field name="name">cabochon.audit.log.list</field>
+        <field name="model">cabochon.audit.log</field>
+        <field name="arch" type="xml">
+            <list create="0" edit="0" delete="0">
+                <field name="action_date"/>
+                <field name="user_id"/>
+                <field name="action"/>
+                <field name="model_description"/>
+                <field name="record_name"/>
+                <field name="record_id"/>
+                <field name="changed_fields" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cabochon_audit_log_form" model="ir.ui.view">
+        <field name="name">cabochon.audit.log.form</field>
+        <field name="model">cabochon.audit.log</field>
+        <field name="arch" type="xml">
+            <form create="0" edit="0" delete="0">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="action_date"/>
+                            <field name="user_id"/>
+                            <field name="action"/>
+                        </group>
+                        <group>
+                            <field name="model_name"/>
+                            <field name="model_description"/>
+                            <field name="record_id"/>
+                            <field name="record_name"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Поля">
+                            <field name="changed_fields"/>
+                        </page>
+                        <page string="Было">
+                            <field name="old_values"/>
+                        </page>
+                        <page string="Стало">
+                            <field name="new_values"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_cabochon_audit_log_search" model="ir.ui.view">
+        <field name="name">cabochon.audit.log.search</field>
+        <field name="model">cabochon.audit.log</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="user_id"/>
+                <field name="action"/>
+                <field name="model_name"/>
+                <field name="model_description"/>
+                <field name="record_name"/>
+                <filter string="Создание" name="action_create" domain="[('action', '=', 'create')]"/>
+                <filter string="Изменение" name="action_write" domain="[('action', '=', 'write')]"/>
+                <filter string="Удаление" name="action_unlink" domain="[('action', '=', 'unlink')]"/>
+                <group>
+                    <filter string="Пользователь" name="group_user" context="{'group_by': 'user_id'}"/>
+                    <filter string="Действие" name="group_action" context="{'group_by': 'action'}"/>
+                    <filter string="Модель" name="group_model" context="{'group_by': 'model_description'}"/>
+                    <filter string="Дата" name="group_date" context="{'group_by': 'action_date:day'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_cabochon_audit_log" model="ir.actions.act_window">
+        <field name="name">Журнал действий</field>
+        <field name="res_model">cabochon.audit.log</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_cabochon_audit_log_search"/>
+    </record>
+
+    <menuitem id="menu_cabochon_audit_log" name="Журнал действий" parent="menu_cabochon_root" action="action_cabochon_audit_log" sequence="95" groups="cabochon_base.group_cabochon_admin"/>
+</odoo>

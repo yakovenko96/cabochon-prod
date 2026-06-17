@@ -1,0 +1,1080 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="paperformat_cabochon_lot_label_a6" model="report.paperformat">
+        <field name="name">Кабошоны: этикетка A6</field>
+        <field name="default" eval="False"/>
+        <field name="format">custom</field>
+        <field name="page_width">105</field>
+        <field name="page_height">148</field>
+        <field name="orientation">Portrait</field>
+        <field name="margin_top">5</field>
+        <field name="margin_bottom">5</field>
+        <field name="margin_left">5</field>
+        <field name="margin_right">5</field>
+        <field name="dpi">90</field>
+    </record>
+
+    <record id="action_report_cabochon_lot_label" model="ir.actions.report">
+        <field name="name">Этикетка мешка</field>
+        <field name="model">cabochon.stone.lot</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">cabochon_manufacturing.report_cabochon_lot_label</field>
+        <field name="report_file">cabochon_manufacturing.report_cabochon_lot_label</field>
+        <field name="paperformat_id" ref="paperformat_cabochon_lot_label_a6"/>
+        <field name="print_report_name">'Этикетка - %s' % object.name</field>
+    </record>
+
+    <template id="report_cabochon_lot_label">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="lot">
+                <t t-call="web.basic_layout">
+                    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+                    <div class="page" style="font-family: 'DejaVu Sans', Arial, sans-serif; padding: 8px; width: 95mm; min-height: 138mm;">
+                        <h2 style="margin: 0 0 8px 0;">Мешок <span t-field="lot.name"/></h2>
+                        <div style="display: flex; gap: 24px; align-items: flex-start;">
+                            <div>
+                                <img t-att-src="'/report/barcode/QR/%s?width=180&amp;height=180' % lot.barcode" alt="QR"/>
+                                <div style="font-size: 12px; text-align: center; margin-top: 4px;" t-field="lot.barcode"/>
+                            </div>
+                            <div style="font-size: 14px; line-height: 1.7;">
+                                <div><strong>Вес:</strong> <span t-field="lot.current_weight_g"/> г</div>
+                                <div><strong>Зона:</strong> <span t-field="lot.location_id"/></div>
+                                <div><strong>Работник:</strong> <span t-field="lot.owner_employee_id"/></div>
+                                <div><strong>Фракция:</strong> <span t-field="lot.fraction_id"/></div>
+                                <div><strong>Год/месяц добычи:</strong> <span t-field="lot.extraction_year"/> / <span t-field="lot.extraction_month"/></div>
+                                <div><strong>Цвет:</strong> <span t-field="lot.color_id"/></div>
+                                <div><strong>Размер:</strong> <span t-field="lot.stone_size_id"/></div>
+                                <div><strong>Форма:</strong> <span t-field="lot.shape_id"/></div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 14px;">
+                            <img t-att-src="'/report/barcode/Code128/%s?width=360&amp;height=70' % lot.barcode" alt="Barcode"/>
+                        </div>
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+
+    <record id="view_cabochon_operation_list" model="ir.ui.view">
+        <field name="name">cabochon.manufacturing.operation.list</field>
+        <field name="model">cabochon.manufacturing.operation</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="sequence" widget="handle"/>
+                <field name="name" width="260px"/>
+                <field name="code" width="120px"/>
+                <field name="warehouse_stage" width="180px"/>
+                <field name="creates_split_lots"/>
+                <field name="final_operation"/>
+                <field name="accepts_weighed_defect"/>
+                <field name="expected_loss_percent"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cabochon_operation_form" model="ir.ui.view">
+        <field name="name">cabochon.manufacturing.operation.form</field>
+        <field name="model">cabochon.manufacturing.operation</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="code"/>
+                        <field name="sequence"/>
+                        <field name="warehouse_stage"/>
+                        <field name="creates_split_lots"/>
+                        <field name="final_operation"/>
+                        <field name="accepts_weighed_defect"/>
+                        <field name="expected_loss_percent"/>
+                        <field name="active"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_cabochon_operation" model="ir.actions.act_window">
+        <field name="name">Операции</field>
+        <field name="res_model">cabochon.manufacturing.operation</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="view_cabochon_location_list" model="ir.ui.view">
+        <field name="name">cabochon.manufacturing.location.list</field>
+        <field name="model">cabochon.manufacturing.location</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="sequence" widget="handle"/>
+                <field name="name" width="260px"/>
+                <field name="code" width="180px"/>
+                <field name="employee_id" width="220px"/>
+                <field name="manager_id" width="220px"/>
+                <field name="stock_location_id" width="240px"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cabochon_location_form" model="ir.ui.view">
+        <field name="name">cabochon.manufacturing.location.form</field>
+        <field name="model">cabochon.manufacturing.location</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="code"/>
+                        <field name="employee_id" invisible="code != 'employee'"/>
+                        <field name="manager_id" invisible="code == 'employee'"/>
+                        <field name="stock_location_id"/>
+                        <field name="sequence"/>
+                        <field name="active"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_cabochon_location" model="ir.actions.act_window">
+        <field name="name">Складские зоны</field>
+        <field name="res_model">cabochon.manufacturing.location</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="view_cabochon_extraction_year_list" model="ir.ui.view">
+        <field name="name">cabochon.extraction.year.list</field>
+        <field name="model">cabochon.extraction.year</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="year"/>
+                <field name="name"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cabochon_extraction_year_form" model="ir.ui.view">
+        <field name="name">cabochon.extraction.year.form</field>
+        <field name="model">cabochon.extraction.year</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="year"/>
+                        <field name="name"/>
+                        <field name="active"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_cabochon_extraction_year" model="ir.actions.act_window">
+        <field name="name">Годы добычи</field>
+        <field name="res_model">cabochon.extraction.year</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="view_cabochon_fraction_list" model="ir.ui.view">
+        <field name="name">cabochon.fraction.list</field>
+        <field name="model">cabochon.fraction</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cabochon_fraction_form" model="ir.ui.view">
+        <field name="name">cabochon.fraction.form</field>
+        <field name="model">cabochon.fraction</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="sequence"/>
+                        <field name="active"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_cabochon_fraction" model="ir.actions.act_window">
+        <field name="name">Фракции</field>
+        <field name="res_model">cabochon.fraction</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="view_cabochon_stone_lot_search" model="ir.ui.view">
+        <field name="name">cabochon.stone.lot.search</field>
+        <field name="model">cabochon.stone.lot</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="barcode"/>
+                <field name="supplier_id"/>
+                <field name="fraction_id"/>
+                <field name="location_id"/>
+                <field name="owner_employee_id"/>
+                <filter name="available" string="На складе" domain="[('state','=','available')]"/>
+                <filter name="issued" string="Выдано" domain="[('state','=','issued')]"/>
+                <group>
+                    <filter name="group_location" string="Зона" context="{'group_by': 'location_id'}"/>
+                    <filter name="group_year" string="Год добычи" context="{'group_by': 'extraction_year'}"/>
+                    <filter name="group_month" string="Месяц добычи" context="{'group_by': 'extraction_month'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_cabochon_stone_lot_list" model="ir.ui.view">
+        <field name="name">cabochon.stone.lot.list</field>
+        <field name="model">cabochon.stone.lot</field>
+        <field name="arch" type="xml">
+            <list create="0" edit="0" delete="0" decoration-warning="state == 'issued'" decoration-muted="state in ('consumed','written_off')">
+                <field name="name" width="150px"/>
+                <field name="barcode" width="160px"/>
+                <field name="parent_id" width="150px"/>
+                <field name="fraction_id" width="180px"/>
+                <field name="extraction_year_id"/>
+                <field name="extraction_month"/>
+                <field name="current_weight_g" sum="Текущий вес"/>
+                <field name="location_id" width="220px"/>
+                <field name="owner_employee_id" width="220px"/>
+                <field name="operation_id" width="220px"/>
+                <field name="color_id" width="140px"/>
+                <field name="stone_size_id" width="140px"/>
+                <field name="state"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cabochon_stone_lot_form" model="ir.ui.view">
+        <field name="name">cabochon.stone.lot.form</field>
+        <field name="model">cabochon.stone.lot</field>
+        <field name="arch" type="xml">
+            <form create="0" edit="0" delete="0">
+                <header>
+                    <button name="%(action_report_cabochon_lot_label)d" string="Печать этикетки" type="action"/>
+                    <button name="action_open_movements" string="История маршрута" type="object"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name"/></h1>
+                    </div>
+                    <group>
+                        <group string="Поступление">
+                            <field name="supplier_id"/>
+                            <field name="waybill_number"/>
+                            <field name="receipt_date"/>
+                            <field name="accepted_by_id"/>
+                            <field name="fraction_id"/>
+                            <field name="extraction_year_id"/>
+                            <field name="extraction_month"/>
+                        </group>
+                        <group string="Текущий учет">
+                            <field name="barcode"/>
+                            <field name="parent_id"/>
+                            <field name="location_id"/>
+                            <field name="owner_employee_id"/>
+                            <field name="operation_id"/>
+                            <field name="initial_weight_g"/>
+                            <field name="current_weight_g"/>
+                        </group>
+                    </group>
+                    <group string="Параметры после обработки">
+                        <field name="color_id"/>
+                        <field name="stone_size_id"/>
+                        <field name="shape_id"/>
+                        <field name="form_type_id"/>
+                    </group>
+                    <notebook>
+                        <page string="История операций">
+                            <field name="route_movement_ids" readonly="1">
+                                <list default_order="movement_date, id">
+                                    <field name="movement_date" width="170px"/>
+                                    <field name="kind"/>
+                                    <field name="request_id" width="160px"/>
+                                    <field name="operation_ids" widget="many2many_tags" width="300px"/>
+                                    <field name="primary_operation_id" width="240px"/>
+                                    <field name="lot_id" width="160px"/>
+                                    <field name="new_lot_id" width="160px"/>
+                                    <field name="weight_g"/>
+                                    <field name="source_weight_before_g"/>
+                                    <field name="source_location_id" width="220px"/>
+                                    <field name="destination_location_id" width="220px"/>
+                                    <field name="worker_id" width="220px"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Полученные мешки">
+                            <field name="child_ids" readonly="1">
+                                <list>
+                                    <field name="name" width="150px"/>
+                                    <field name="current_weight_g"/>
+                                    <field name="location_id" width="220px"/>
+                                    <field name="color_id" width="140px"/>
+                                    <field name="stone_size_id" width="140px"/>
+                                    <field name="shape_id" width="150px"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_cabochon_stone_lot" model="ir.actions.act_window">
+        <field name="name">Остатки на складе</field>
+        <field name="res_model">cabochon.stone.lot</field>
+        <field name="view_mode">list,form,pivot,graph</field>
+        <field name="search_view_id" ref="view_cabochon_stone_lot_search"/>
+    </record>
+
+    <record id="view_cabochon_external_receipt_wizard_form" model="ir.ui.view">
+        <field name="name">cabochon.external.receipt.wizard.form</field>
+        <field name="model">cabochon.external.receipt.wizard</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="supplier_id"/>
+                            <field name="location_id"/>
+                            <field name="lot_name"/>
+                            <field name="initial_weight_g"/>
+                        </group>
+                        <group>
+                            <field name="waybill_number"/>
+                            <field name="fraction_id"/>
+                            <field name="extraction_year_id"/>
+                            <field name="extraction_month"/>
+                        </group>
+                    </group>
+                    <field name="note"/>
+                </sheet>
+                <footer>
+                    <button name="action_create_receipt" string="Создать приход" type="object" class="btn-primary"/>
+                    <button string="Отмена" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_cabochon_external_receipt_wizard" model="ir.actions.act_window">
+        <field name="name">Приход сырья</field>
+        <field name="res_model">cabochon.external.receipt.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <record id="view_cabochon_request_list" model="ir.ui.view">
+        <field name="name">cabochon.production.request.list</field>
+        <field name="model">cabochon.production.request</field>
+        <field name="arch" type="xml">
+            <list default_order="state_order, priority desc, deadline, id desc" decoration-danger="is_overdue" decoration-warning="state in ('confirmed','in_progress','partially_done')" decoration-muted="state in ('done','cancelled')">
+                <field name="name" width="150px"/>
+                <field name="priority" string="Приоритет"/>
+                <field name="worker_id" width="220px"/>
+                <field name="operation_ids" widget="many2many_tags" width="300px"/>
+                <field name="source_lot_id" width="160px"/>
+                <field name="planned_weight_g"/>
+                <field name="issued_weight_g"/>
+                <field name="received_weight_g"/>
+                <field name="defect_weight_g"/>
+                <field name="lost_weight_g"/>
+                <field name="deadline" width="170px"/>
+                <field name="is_overdue" column_invisible="1"/>
+                <field name="state_order" column_invisible="1"/>
+                <field name="started_at" width="170px"/>
+                <field name="closed_at" width="170px"/>
+                <field name="actual_duration_hours"/>
+                <field name="worker_load"/>
+                <field name="state"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cabochon_request_search" model="ir.ui.view">
+        <field name="name">cabochon.production.request.search</field>
+        <field name="model">cabochon.production.request</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="worker_id"/>
+                <field name="technologist_id"/>
+                <field name="operation_ids"/>
+                <field name="source_lot_id"/>
+                <filter name="waiting_action" string="Ожидает действия" domain="[('state','in',['draft','confirmed','issued','in_progress','partially_done'])]"/>
+                <filter name="overdue" string="Просрочено" domain="[('is_overdue','=',True)]"/>
+                <filter name="in_work" string="В работе" domain="[('state','in',['issued','in_progress','partially_done'])]"/>
+                <filter name="my_technology" string="Мои заявки технолога" domain="[('technologist_id.user_id','=',uid)]"/>
+                <filter name="my_worker" string="Я работник" domain="[('worker_id.user_id','=',uid)]"/>
+                <filter name="closed" string="Закрытые" domain="[('state','in',['done','cancelled'])]"/>
+                <group>
+                    <filter name="group_state" string="Статус" context="{'group_by': 'state'}"/>
+                    <filter name="group_operation" string="Операция" context="{'group_by': 'operation_ids'}"/>
+                    <filter name="group_worker" string="Работник" context="{'group_by': 'worker_id'}"/>
+                    <filter name="group_technologist" string="Технолог" context="{'group_by': 'technologist_id'}"/>
+                    <filter name="group_deadline_month" string="Месяц срока" context="{'group_by': 'deadline:month'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_cabochon_request_form" model="ir.ui.view">
+        <field name="name">cabochon.production.request.form</field>
+        <field name="model">cabochon.production.request</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_confirm" string="Подтвердить" type="object" class="btn-primary" invisible="state != 'draft'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
+                    <button name="action_start" string="В работу" type="object" invisible="state != 'issued'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
+                    <button name="action_create_receipt" string="Создать сдачу" type="object" invisible="state not in ('issued','in_progress','partially_done')" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
+                    <button name="action_close" string="Закрыть" type="object" invisible="state not in ('in_progress','partially_done')" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
+                    <button name="action_cancel" string="Отменить" type="object" invisible="state != 'draft'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="technologist_id"/>
+                            <field name="eligible_operation_ids" invisible="1"/>
+                            <field name="eligible_lot_ids" invisible="1"/>
+                            <field name="show_sort_type" invisible="1"/>
+                            <field name="show_receipt_destination_stage" invisible="1"/>
+                            <field name="operation_ids" widget="many2many_tags" domain="source_lot_id and [('id', 'in', eligible_operation_ids)] or [('active', '=', True)]" readonly="state != 'draft'"/>
+                            <field name="sort_type" invisible="not show_sort_type" readonly="state != 'draft'"/>
+                            <field name="receipt_destination_stage" invisible="not show_receipt_destination_stage" readonly="state != 'draft'"/>
+                            <field name="eligible_worker_ids" invisible="1"/>
+                            <field name="worker_id" domain="[('id', 'in', eligible_worker_ids)]" readonly="state != 'draft'"/>
+                            <field name="worker_load"/>
+                            <field name="deadline" readonly="state != 'draft'"/>
+                            <field name="priority" string="Приоритет" readonly="state != 'draft'"/>
+                        </group>
+                        <group>
+                            <field name="source_lot_id" domain="[('id', 'in', eligible_lot_ids)]" readonly="state != 'draft'"/>
+                            <field name="planned_weight_g" readonly="state != 'draft'"/>
+                            <field name="issued_weight_g"/>
+                            <field name="received_weight_g"/>
+                            <field name="defect_weight_g"/>
+                            <field name="lost_weight_g"/>
+                            <field name="issue_id"/>
+                        </group>
+                    </group>
+                    <group string="Фактическое время" invisible="state == 'draft'">
+                        <field name="confirmed_at"/>
+                        <field name="issued_at"/>
+                        <field name="started_at"/>
+                        <field name="first_receipt_at"/>
+                        <field name="closed_at"/>
+                        <field name="actual_duration_hours"/>
+                    </group>
+                    <notebook>
+                        <page string="Маршрут операций">
+                            <field name="operation_line_ids" readonly="1">
+                                <list>
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="operation_id" width="260px"/>
+                                    <field name="state"/>
+                                    <field name="started_at" width="170px"/>
+                                    <field name="finished_at" width="170px"/>
+                                    <field name="duration_hours"/>
+                                    <field name="note"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Сдачи">
+                            <field name="receipt_ids" readonly="1">
+                                <list>
+                                    <field name="name" width="150px"/>
+                                    <field name="transfer_type"/>
+                                    <field name="transfer_date" width="170px"/>
+                                    <field name="total_weight_g"/>
+                                    <field name="total_defect_weight_g"/>
+                                    <field name="total_lost_weight_g"/>
+                                    <field name="state"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Журнал движений">
+                            <field name="movement_ids" readonly="1">
+                                <list>
+                                    <field name="movement_date"/>
+                                    <field name="kind"/>
+                                    <field name="lot_id" width="160px"/>
+                                    <field name="new_lot_id" width="160px"/>
+                                    <field name="weight_g"/>
+                                    <field name="source_location_id" width="220px"/>
+                                    <field name="destination_location_id" width="220px"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_cabochon_request" model="ir.actions.act_window">
+        <field name="name">Заявки на изготовление</field>
+        <field name="res_model">cabochon.production.request</field>
+        <field name="view_mode">list,form,pivot,graph</field>
+        <field name="search_view_id" ref="view_cabochon_request_search"/>
+    </record>
+
+    <record id="view_cabochon_request_operation_line_list" model="ir.ui.view">
+        <field name="name">cabochon.production.request.operation.line.list</field>
+        <field name="model">cabochon.production.request.operation.line</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="request_id"/>
+                <field name="sequence"/>
+                <field name="operation_id"/>
+                <field name="worker_id"/>
+                <field name="state"/>
+                <field name="started_at"/>
+                <field name="finished_at"/>
+                <field name="duration_hours" sum="Время"/>
+                <field name="planned_weight_g" sum="Плановый вес"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cabochon_request_operation_line_search" model="ir.ui.view">
+        <field name="name">cabochon.production.request.operation.line.search</field>
+        <field name="model">cabochon.production.request.operation.line</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="request_id" width="160px"/>
+                <field name="operation_id" width="260px"/>
+                <field name="worker_id" width="220px"/>
+                <filter name="in_progress" string="В работе" domain="[('state','=','in_progress')]"/>
+                <filter name="done" string="Готово" domain="[('state','=','done')]"/>
+                <group>
+                    <filter name="group_operation" string="Операция" context="{'group_by': 'operation_id'}"/>
+                    <filter name="group_worker" string="Работник" context="{'group_by': 'worker_id'}"/>
+                    <filter name="group_state" string="Статус" context="{'group_by': 'state'}"/>
+                    <filter name="group_month" string="Месяц начала" context="{'group_by': 'started_at:month'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_cabochon_request_operation_line_form" model="ir.ui.view">
+        <field name="name">cabochon.production.request.operation.line.form</field>
+        <field name="model">cabochon.production.request.operation.line</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_start" string="Начать" type="object" class="btn-primary" invisible="state != 'pending'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
+                    <button name="action_finish" string="Завершить" type="object" invisible="state == 'done'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="request_id"/>
+                            <field name="sequence"/>
+                            <field name="operation_id"/>
+                            <field name="worker_id"/>
+                        </group>
+                        <group>
+                <field name="started_at" width="170px"/>
+                <field name="finished_at" width="170px"/>
+                            <field name="duration_hours"/>
+                            <field name="planned_weight_g"/>
+                        </group>
+                    </group>
+                    <field name="note"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_cabochon_request_operation_line_pivot" model="ir.ui.view">
+        <field name="name">cabochon.production.request.operation.line.pivot</field>
+        <field name="model">cabochon.production.request.operation.line</field>
+        <field name="arch" type="xml">
+            <pivot string="Время операций">
+                <field name="operation_id" type="row"/>
+                <field name="worker_id" type="row"/>
+                <field name="started_at" interval="month" type="col"/>
+                <field name="duration_hours" type="measure"/>
+                <field name="planned_weight_g" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_cabochon_request_operation_line_graph" model="ir.ui.view">
+        <field name="name">cabochon.production.request.operation.line.graph</field>
+        <field name="model">cabochon.production.request.operation.line</field>
+        <field name="arch" type="xml">
+            <graph string="Время по операциям" type="bar">
+                <field name="operation_id"/>
+                <field name="duration_hours" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_cabochon_request_operation_line" model="ir.actions.act_window">
+        <field name="name">Время операций</field>
+        <field name="res_model">cabochon.production.request.operation.line</field>
+        <field name="view_mode">list,form,pivot,graph</field>
+        <field name="search_view_id" ref="view_cabochon_request_operation_line_search"/>
+    </record>
+
+    <record id="view_cabochon_transfer_list" model="ir.ui.view">
+        <field name="name">cabochon.material.transfer.list</field>
+        <field name="model">cabochon.material.transfer</field>
+        <field name="arch" type="xml">
+            <list default_order="state_order, transfer_date desc, id desc" decoration-warning="state == 'draft'" decoration-muted="state == 'confirmed'">
+                <field name="name" width="150px"/>
+                <field name="transfer_type"/>
+                <field name="request_id" width="160px"/>
+                <field name="worker_id" width="220px"/>
+                <field name="manager_id" width="220px"/>
+                <field name="operation_ids" widget="many2many_tags" width="300px"/>
+                <field name="primary_operation_id" width="240px"/>
+                <field name="transfer_date" width="170px"/>
+                <field name="state_order" column_invisible="1"/>
+                <field name="total_weight_g" sum="Фактический вес"/>
+                <field name="total_defect_weight_g" sum="Брак"/>
+                <field name="total_lost_weight_g" sum="Потери"/>
+                <field name="state"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cabochon_transfer_search" model="ir.ui.view">
+        <field name="name">cabochon.material.transfer.search</field>
+        <field name="model">cabochon.material.transfer</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="request_id"/>
+                <field name="worker_id"/>
+                <field name="manager_id"/>
+                <field name="operation_ids"/>
+                <filter name="waiting_me" string="Ожидает меня" domain="[('manager_id.user_id','=',uid),('state','=','draft')]"/>
+                <filter name="draft" string="Ожидает обработки" domain="[('state','=','draft')]"/>
+                <filter name="issue" string="Выдачи" domain="[('transfer_type','=','issue')]"/>
+                <filter name="receipt" string="Сдачи" domain="[('transfer_type','=','receipt')]"/>
+                <filter name="confirmed" string="Подтвержденные" domain="[('state','=','confirmed')]"/>
+                <group>
+                    <filter name="group_state" string="Статус" context="{'group_by': 'state'}"/>
+                    <filter name="group_type" string="Тип" context="{'group_by': 'transfer_type'}"/>
+                    <filter name="group_manager" string="Менеджер" context="{'group_by': 'manager_id'}"/>
+                    <filter name="group_worker" string="Работник" context="{'group_by': 'worker_id'}"/>
+                    <filter name="group_operation" string="Операция" context="{'group_by': 'primary_operation_id'}"/>
+                    <filter name="group_month" string="Месяц" context="{'group_by': 'transfer_date:month'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_cabochon_transfer_form" model="ir.ui.view">
+        <field name="name">cabochon.material.transfer.form</field>
+        <field name="model">cabochon.material.transfer</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_confirm" string="Подтвердить" type="object" class="btn-primary" invisible="state != 'draft'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="transfer_type" readonly="state == 'confirmed'"/>
+                            <field name="request_id" readonly="state == 'confirmed'"/>
+                            <field name="worker_id" readonly="state == 'confirmed'"/>
+                            <field name="manager_id" readonly="state == 'confirmed'"/>
+                        </group>
+                        <group>
+                            <field name="operation_ids" widget="many2many_tags" readonly="state == 'confirmed'"/>
+                            <field name="primary_operation_id" readonly="1"/>
+                            <field name="show_sort_fields" invisible="1"/>
+                            <field name="show_press_fields" invisible="1"/>
+                            <field name="show_color_size_fields" invisible="1"/>
+                            <field name="show_shape_fields" invisible="1"/>
+                            <field name="transfer_date" readonly="state == 'confirmed'"/>
+                            <field name="total_weight_g"/>
+                            <field name="total_defect_weight_g"/>
+                            <field name="total_lost_weight_g"/>
+                        </group>
+                    </group>
+                    <field name="line_ids" readonly="state == 'confirmed'">
+                        <list editable="bottom" delete="1">
+                            <field name="transfer_type" column_invisible="1"/>
+                            <field name="lot_id" width="160px"/>
+                            <field name="weight_before_g"/>
+                            <field name="weight_g" string="Фактический вес, г"/>
+                            <field name="defect_weight_g"/>
+                            <field name="lost_weight_g" readonly="transfer_type != 'issue'" force_save="1"/>
+                            <field name="sort_type" width="160px" column_invisible="not parent.show_sort_fields" required="parent.show_sort_fields"/>
+                            <field name="color_id" width="140px" column_invisible="not parent.show_color_size_fields" required="parent.show_color_size_fields"/>
+                            <field name="stone_size_id" width="140px" column_invisible="not parent.show_color_size_fields" required="parent.show_color_size_fields"/>
+                            <field name="shape_id" width="150px" column_invisible="not parent.show_shape_fields" required="parent.show_shape_fields"/>
+                            <field name="form_type_id" width="180px" column_invisible="1"/>
+                            <field name="new_lot_id" readonly="1" width="160px" column_invisible="parent.state != 'confirmed'"/>
+                        </list>
+                    </field>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_cabochon_transfer" model="ir.actions.act_window">
+        <field name="name">Выдачи и сдачи</field>
+        <field name="res_model">cabochon.material.transfer</field>
+        <field name="view_mode">list,form,pivot,graph</field>
+        <field name="search_view_id" ref="view_cabochon_transfer_search"/>
+    </record>
+
+    <record id="view_cabochon_movement_list" model="ir.ui.view">
+        <field name="name">cabochon.manufacturing.movement.list</field>
+        <field name="model">cabochon.manufacturing.movement</field>
+        <field name="arch" type="xml">
+            <list decoration-danger="is_loss_over_norm">
+                <field name="movement_date" width="170px"/>
+                <field name="name" width="150px"/>
+                <field name="kind"/>
+                <field name="request_id" width="160px"/>
+                <field name="lot_id" width="160px"/>
+                <field name="new_lot_id" width="160px"/>
+                <field name="report_lot_id" width="160px"/>
+                <field name="operation_ids" widget="many2many_tags" width="300px"/>
+                <field name="primary_operation_id" width="240px"/>
+                <field name="worker_id" width="220px"/>
+                <field name="manager_id" width="220px"/>
+                <field name="report_lot_extraction_year"/>
+                <field name="report_lot_extraction_month"/>
+                <field name="source_location_id" width="220px"/>
+                <field name="destination_location_id" width="220px"/>
+                <field name="weight_g" sum="Вес"/>
+                <field name="source_weight_before_g"/>
+                <field name="loss_norm_percent"/>
+                <field name="loss_percent"/>
+                <field name="loss_over_norm_percent"/>
+                <field name="is_loss_over_norm" column_invisible="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cabochon_movement_search" model="ir.ui.view">
+        <field name="name">cabochon.manufacturing.movement.search</field>
+        <field name="model">cabochon.manufacturing.movement</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="lot_id"/>
+                <field name="new_lot_id"/>
+                <field name="report_lot_id"/>
+                <field name="worker_id" width="220px"/>
+                <field name="operation_ids"/>
+                <field name="primary_operation_id"/>
+                <filter name="defect" string="Брак" domain="[('kind','=','defect')]"/>
+                <filter name="loss" string="Потери" domain="[('kind','=','loss')]"/>
+                <filter name="loss_over_norm" string="Потери выше нормы" domain="[('is_loss_over_norm','=',True)]"/>
+                <group>
+                    <filter name="group_operation" string="Операция" context="{'group_by': 'primary_operation_id'}"/>
+                    <filter name="group_worker" string="Работник" context="{'group_by': 'worker_id'}"/>
+                    <filter name="group_month" string="Месяц" context="{'group_by': 'movement_date:month'}"/>
+                    <filter name="group_lot" string="Мешок" context="{'group_by': 'report_lot_id'}"/>
+                    <filter name="group_extraction_year" string="Год добычи" context="{'group_by': 'report_lot_extraction_year'}"/>
+                    <filter name="group_extraction_month" string="Месяц добычи" context="{'group_by': 'report_lot_extraction_month'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_cabochon_movement_form" model="ir.ui.view">
+        <field name="name">cabochon.manufacturing.movement.form</field>
+        <field name="model">cabochon.manufacturing.movement</field>
+        <field name="arch" type="xml">
+            <form create="0" delete="0">
+                <header>
+                    <button name="action_open_correction_wizard" string="Корректировка" type="object" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="kind"/>
+                            <field name="movement_date"/>
+                            <field name="request_id"/>
+                            <field name="transfer_id"/>
+                            <field name="operation_ids" widget="many2many_tags"/>
+                            <field name="primary_operation_id"/>
+                        </group>
+                        <group>
+                            <field name="lot_id"/>
+                            <field name="new_lot_id"/>
+                            <field name="report_lot_id"/>
+                            <field name="report_lot_extraction_year"/>
+                            <field name="report_lot_extraction_month"/>
+                            <field name="source_location_id"/>
+                            <field name="destination_location_id"/>
+                            <field name="weight_g"/>
+                            <field name="source_weight_before_g"/>
+                            <field name="loss_norm_percent"/>
+                            <field name="loss_percent"/>
+                            <field name="loss_over_norm_percent"/>
+                            <field name="is_loss_over_norm"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="worker_id"/>
+                        <field name="manager_id"/>
+                        <field name="correction_of_id"/>
+                    </group>
+                    <field name="note"/>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_cabochon_movement_pivot" model="ir.ui.view">
+        <field name="name">cabochon.manufacturing.movement.pivot</field>
+        <field name="model">cabochon.manufacturing.movement</field>
+        <field name="arch" type="xml">
+            <pivot string="Отчет по движениям">
+                <field name="primary_operation_id" type="row"/>
+                <field name="worker_id" type="row"/>
+                <field name="movement_date" interval="month" type="col"/>
+                <field name="weight_g" type="measure"/>
+                <field name="source_weight_before_g" type="measure"/>
+                <field name="loss_over_norm_percent" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_cabochon_movement_graph" model="ir.ui.view">
+        <field name="name">cabochon.manufacturing.movement.graph</field>
+        <field name="model">cabochon.manufacturing.movement</field>
+        <field name="arch" type="xml">
+            <graph string="Движения по операциям" type="bar">
+                <field name="primary_operation_id"/>
+                <field name="weight_g" type="measure"/>
+                <field name="loss_over_norm_percent" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_cabochon_movement" model="ir.actions.act_window">
+        <field name="name">Журнал движений</field>
+        <field name="res_model">cabochon.manufacturing.movement</field>
+        <field name="view_mode">list,form,pivot,graph</field>
+        <field name="search_view_id" ref="view_cabochon_movement_search"/>
+    </record>
+
+    <record id="action_cabochon_defect_report" model="ir.actions.act_window">
+        <field name="name">Брак и потери по сотрудникам и операциям</field>
+        <field name="res_model">cabochon.manufacturing.movement</field>
+        <field name="view_mode">pivot,graph,list,form</field>
+        <field name="domain">[('kind','in',['defect','loss'])]</field>
+        <field name="context">{'search_default_group_worker': 1, 'search_default_group_operation': 1}</field>
+        <field name="search_view_id" ref="view_cabochon_movement_search"/>
+    </record>
+
+    <record id="view_cabochon_worker_operation_quality_report_list" model="ir.ui.view">
+        <field name="name">cabochon.worker.operation.quality.report.list</field>
+        <field name="model">cabochon.worker.operation.quality.report</field>
+        <field name="arch" type="xml">
+            <list decoration-danger="loss_over_norm_percent &gt; 0">
+                <field name="worker_id"/>
+                <field name="operation_id"/>
+                <field name="issued_weight_g" sum="Выдано"/>
+                <field name="received_weight_g" sum="Сдано"/>
+                <field name="defect_weight_g" sum="Брак"/>
+                <field name="lost_weight_g" sum="Потери"/>
+                <field name="processed_weight_g" sum="Обработано"/>
+                <field name="defect_percent"/>
+                <field name="loss_percent"/>
+                <field name="total_loss_percent"/>
+                <field name="expected_loss_percent"/>
+                <field name="loss_over_norm_percent"/>
+                <field name="movement_count" sum="Движений"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cabochon_worker_operation_quality_report_search" model="ir.ui.view">
+        <field name="name">cabochon.worker.operation.quality.report.search</field>
+        <field name="model">cabochon.worker.operation.quality.report</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="worker_id"/>
+                <field name="operation_id"/>
+                <filter name="loss_over_norm" string="Потери выше нормы" domain="[('loss_over_norm_percent','&gt;',0)]"/>
+                <group>
+                    <filter name="group_worker" string="Работник" context="{'group_by': 'worker_id'}"/>
+                    <filter name="group_operation" string="Операция" context="{'group_by': 'operation_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_cabochon_worker_operation_quality_report_pivot" model="ir.ui.view">
+        <field name="name">cabochon.worker.operation.quality.report.pivot</field>
+        <field name="model">cabochon.worker.operation.quality.report</field>
+        <field name="arch" type="xml">
+            <pivot string="Качество по работникам и операциям">
+                <field name="worker_id" type="row"/>
+                <field name="operation_id" type="row"/>
+                <field name="issued_weight_g" type="measure"/>
+                <field name="received_weight_g" type="measure"/>
+                <field name="defect_weight_g" type="measure"/>
+                <field name="lost_weight_g" type="measure"/>
+                <field name="defect_percent" type="measure"/>
+                <field name="loss_percent" type="measure"/>
+                <field name="total_loss_percent" type="measure"/>
+                <field name="loss_over_norm_percent" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_cabochon_worker_operation_quality_report_graph" model="ir.ui.view">
+        <field name="name">cabochon.worker.operation.quality.report.graph</field>
+        <field name="model">cabochon.worker.operation.quality.report</field>
+        <field name="arch" type="xml">
+            <graph string="Качество по операциям" type="bar">
+                <field name="operation_id"/>
+                <field name="total_loss_percent" type="measure"/>
+                <field name="loss_over_norm_percent" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_cabochon_worker_operation_quality_report" model="ir.actions.act_window">
+        <field name="name">Качество по работникам и операциям</field>
+        <field name="res_model">cabochon.worker.operation.quality.report</field>
+        <field name="view_mode">list,pivot,graph</field>
+        <field name="search_view_id" ref="view_cabochon_worker_operation_quality_report_search"/>
+        <field name="context">{'search_default_group_worker': 1, 'search_default_group_operation': 1}</field>
+    </record>
+
+    <record id="view_cabochon_movement_correction_wizard_form" model="ir.ui.view">
+        <field name="name">cabochon.movement.correction.wizard.form</field>
+        <field name="model">cabochon.movement.correction.wizard</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="correction_type"/>
+                        <field name="correction_of_id"/>
+                        <field name="lot_id"/>
+                        <field name="current_weight_g"/>
+                        <field name="current_location_id"/>
+                    </group>
+                    <group invisible="correction_type != 'weight'">
+                        <field name="delta_weight_g"/>
+                    </group>
+                    <group invisible="correction_type != 'location'">
+                        <field name="destination_location_id"/>
+                    </group>
+                    <field name="reason"/>
+                </sheet>
+                <footer>
+                    <button name="action_apply" string="Создать корректировку" type="object" class="btn-primary"/>
+                    <button string="Отмена" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_cabochon_movement_correction_wizard" model="ir.actions.act_window">
+        <field name="name">Корректировка движения</field>
+        <field name="res_model">cabochon.movement.correction.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <record id="view_cabochon_worker_load_report_list" model="ir.ui.view">
+        <field name="name">cabochon.worker.load.report.list</field>
+        <field name="model">cabochon.worker.load.report</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="worker_id"/>
+                <field name="active_request_count" sum="Активные заявки"/>
+                <field name="total_request_count" sum="Всего заявок"/>
+                <field name="planned_weight_g" sum="Плановый вес"/>
+                <field name="issued_weight_g" sum="Выдано"/>
+                <field name="received_weight_g" sum="Сдано"/>
+                <field name="defect_weight_g" sum="Брак"/>
+                <field name="lost_weight_g" sum="Потери"/>
+                <field name="avg_duration_hours"/>
+                <field name="last_activity_at"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cabochon_worker_load_report_search" model="ir.ui.view">
+        <field name="name">cabochon.worker.load.report.search</field>
+        <field name="model">cabochon.worker.load.report</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="worker_id"/>
+                <filter name="has_active" string="Есть активные заявки" domain="[('active_request_count','>',0)]"/>
+                <group>
+                    <filter name="group_worker" string="Работник" context="{'group_by': 'worker_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_cabochon_worker_load_report_pivot" model="ir.ui.view">
+        <field name="name">cabochon.worker.load.report.pivot</field>
+        <field name="model">cabochon.worker.load.report</field>
+        <field name="arch" type="xml">
+            <pivot string="Панель технолога">
+                <field name="worker_id" type="row"/>
+                <field name="active_request_count" type="measure"/>
+                <field name="planned_weight_g" type="measure"/>
+                <field name="received_weight_g" type="measure"/>
+                <field name="defect_weight_g" type="measure"/>
+                <field name="lost_weight_g" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_cabochon_worker_load_report_graph" model="ir.ui.view">
+        <field name="name">cabochon.worker.load.report.graph</field>
+        <field name="model">cabochon.worker.load.report</field>
+        <field name="arch" type="xml">
+            <graph string="Нагрузка работников" type="bar">
+                <field name="worker_id"/>
+                <field name="active_request_count" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_cabochon_worker_load_report" model="ir.actions.act_window">
+        <field name="name">Панель технолога</field>
+        <field name="res_model">cabochon.worker.load.report</field>
+        <field name="view_mode">list,pivot,graph</field>
+        <field name="search_view_id" ref="view_cabochon_worker_load_report_search"/>
+    </record>
+</odoo>

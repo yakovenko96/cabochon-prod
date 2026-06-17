@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="menu_cabochon_root" name="Кабошоны" sequence="35" groups="cabochon_base.group_cabochon_user"/>
+    <menuitem id="menu_cabochon_references" name="Справочники" parent="menu_cabochon_root" sequence="90" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
+
+    <record id="menu_cabochon_references" model="ir.ui.menu">
+        <field name="group_ids" eval="[(6, 0, [ref('cabochon_base.group_cabochon_manager'), ref('cabochon_base.group_cabochon_workshop_manager'), ref('cabochon_base.group_cabochon_admin')])]"/>
+    </record>
+
+</odoo>
