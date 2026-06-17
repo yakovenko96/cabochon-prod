@@ -4,7 +4,6 @@ line-length = 120
 extend-exclude = [
     "__pycache__",
     "*.pyc",
-    "cabochon-images.tar",
 ]
 
 [tool.ruff.lint]

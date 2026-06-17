@@ -6,7 +6,7 @@ updated after each functional change.
 This file is the bootstrap instruction file for agents working in:
 
 ```text
-C:\Users\Asus\data\cabochon-odoo
+C:\Users\Asus\data\cabochon-prod
 ```
 
 ## First Step
@@ -41,13 +41,13 @@ immutable movement history.
 Main workspace:
 
 ```text
-C:\Users\Asus\data\cabochon-odoo
+C:\Users\Asus\data\cabochon-prod
 ```
 
 Custom addons:
 
 ```text
-C:\Users\Asus\data\cabochon-odoo\addons
+C:\Users\Asus\data\cabochon-prod\addons
 ```
 
 Docker Compose lives outside this repository:

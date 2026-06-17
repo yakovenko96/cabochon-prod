@@ -868,7 +868,11 @@ class CabochonProductionRequest(models.Model):
             completed_codes = request.source_lot_id._completed_operation_codes() if request.source_lot_id else set()
             kept_operations = self.env["cabochon.manufacturing.operation"]
             for operation in request.operation_ids.sorted("sequence"):
-                if not operation.code or not request._operation_route_error(kept_operations | operation, completed_codes):
+                if not operation.code or not request._operation_route_error(
+                    kept_operations | operation,
+                    completed_codes,
+                    enforce_prerequisites=bool(request.source_lot_id),
+                ):
                     kept_operations |= operation
             if kept_operations != request.operation_ids:
                 request.operation_ids = kept_operations
@@ -910,7 +914,7 @@ class CabochonProductionRequest(models.Model):
                 raise ValidationError("Склад готовых камней можно выбрать только для финальной операции.")
 
     @api.model
-    def _operation_route_error(self, operations, completed_codes):
+    def _operation_route_error(self, operations, completed_codes, enforce_prerequisites=True):
         codes = [operation.code for operation in operations.sorted("sequence") if operation.code]
         if not codes:
             return False
@@ -942,6 +946,8 @@ class CabochonProductionRequest(models.Model):
                 return f"Эти операции выполняют разные сотрудники, выберите только одну операцию в заявке: {names}."
         wash_codes = {"tumble_wash", "toluene_wash"}
         sorting_codes = {"manual_sorting", "auto_separator"}
+        if not enforce_prerequisites:
+            return False
         non_wash_codes = selected_codes - wash_codes
         if non_wash_codes and not ((completed_codes | selected_codes) & wash_codes):
             return "Перед другими операциями мешок должен пройти помывку в галтовке или толуоле."
