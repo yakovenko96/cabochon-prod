@@ -767,6 +767,22 @@
         <field name="search_view_id" ref="view_cabochon_transfer_search"/>
     </record>
 
+    <record id="action_cabochon_my_transfer" model="ir.actions.act_window">
+        <field name="name">Мои получения и сдачи</field>
+        <field name="res_model">cabochon.material.transfer</field>
+        <field name="view_mode">list,form,pivot,graph</field>
+        <field name="domain">[('worker_id.user_id', '=', uid)]</field>
+        <field name="search_view_id" ref="view_cabochon_transfer_search"/>
+    </record>
+
+    <record id="action_cabochon_managed_transfer" model="ir.actions.act_window">
+        <field name="name">Выдачи и прием от сотрудников</field>
+        <field name="res_model">cabochon.material.transfer</field>
+        <field name="view_mode">list,form,pivot,graph</field>
+        <field name="domain">[('manager_id.user_id', '=', uid)]</field>
+        <field name="search_view_id" ref="view_cabochon_transfer_search"/>
+    </record>
+
     <record id="view_cabochon_movement_list" model="ir.ui.view">
         <field name="name">cabochon.manufacturing.movement.list</field>
         <field name="model">cabochon.manufacturing.movement</field>
@@ -916,6 +932,7 @@
         <field name="name">Брак и потери по сотрудникам и операциям</field>
         <field name="res_model">cabochon.worker.operation.quality.report</field>
         <field name="view_mode">list,pivot,graph</field>
+        <field name="domain">[]</field>
         <field name="context">{'search_default_group_worker': 1, 'search_default_group_operation': 1}</field>
     </record>
 
