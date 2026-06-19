@@ -13,8 +13,9 @@ class CabochonWorkerLoadReport(models.Model):
     total_request_count = fields.Integer(string="Всего заявок", readonly=True)
     planned_weight_g = fields.Float(string="Плановый вес, г", readonly=True)
     issued_weight_g = fields.Float(string="Выдано, г", readonly=True)
-    received_weight_g = fields.Float(string="Сдано годного, г", readonly=True)
-    defect_weight_g = fields.Float(string="Брак, г", readonly=True)
+    received_weight_g = fields.Float(string="Сдано, г", readonly=True)
+    detected_defect_weight_g = fields.Float(string="Выявленный брак, г", readonly=True)
+    made_defect_weight_g = fields.Float(string="Сделанный брак, г", readonly=True)
     lost_weight_g = fields.Float(string="Потери, г", readonly=True)
     avg_duration_hours = fields.Float(string="Среднее время, ч", readonly=True)
     last_activity_at = fields.Datetime(string="Последняя активность", readonly=True)
@@ -38,7 +39,8 @@ class CabochonWorkerLoadReport(models.Model):
                     COALESCE(SUM(request.planned_weight_g), 0.0) AS planned_weight_g,
                     COALESCE(SUM(request.issued_weight_g), 0.0) AS issued_weight_g,
                     COALESCE(SUM(request.received_weight_g), 0.0) AS received_weight_g,
-                    COALESCE(SUM(request.defect_weight_g), 0.0) AS defect_weight_g,
+                    COALESCE(SUM(request.detected_defect_weight_g), 0.0) AS detected_defect_weight_g,
+                    COALESCE(SUM(request.made_defect_weight_g), 0.0) AS made_defect_weight_g,
                     COALESCE(SUM(request.lost_weight_g), 0.0) AS lost_weight_g,
                     COALESCE(AVG(NULLIF(request.actual_duration_hours, 0.0)), 0.0) AS avg_duration_hours,
                     MAX(request.write_date) AS last_activity_at
@@ -61,8 +63,10 @@ class CabochonWorkerOperationQualityReport(models.Model):
     company_id = fields.Many2one("res.company", string="Компания", readonly=True)
     movement_count = fields.Integer(string="Движений", readonly=True)
     issued_weight_g = fields.Float(string="Выдано, г", readonly=True)
-    received_weight_g = fields.Float(string="Сдано годного, г", readonly=True)
+    received_weight_g = fields.Float(string="Сдано, г", readonly=True)
     defect_weight_g = fields.Float(string="Брак, г", readonly=True)
+    detected_defect_weight_g = fields.Float(string="Выявленный брак, г", readonly=True)
+    made_defect_weight_g = fields.Float(string="Сделанный брак, г", readonly=True)
     lost_weight_g = fields.Float(string="Потери, г", readonly=True)
     processed_weight_g = fields.Float(string="Обработано, г", readonly=True)
     defect_percent = fields.Float(string="Брак, %", readonly=True)
@@ -85,6 +89,8 @@ class CabochonWorkerOperationQualityReport(models.Model):
                         COALESCE(SUM(CASE WHEN movement.kind = 'issue' THEN movement.weight_g ELSE 0 END), 0.0) AS issued_weight_g,
                         COALESCE(SUM(CASE WHEN movement.kind = 'receipt' THEN movement.weight_g ELSE 0 END), 0.0) AS received_weight_g,
                         COALESCE(SUM(CASE WHEN movement.kind = 'defect' THEN movement.weight_g ELSE 0 END), 0.0) AS defect_weight_g,
+                        COALESCE(SUM(CASE WHEN movement.kind = 'defect' AND movement.defect_kind = 'detected' THEN movement.weight_g ELSE 0 END), 0.0) AS detected_defect_weight_g,
+                        COALESCE(SUM(CASE WHEN movement.kind = 'defect' AND movement.defect_kind = 'made' THEN movement.weight_g ELSE 0 END), 0.0) AS made_defect_weight_g,
                         COALESCE(SUM(CASE WHEN movement.kind = 'loss' THEN movement.weight_g ELSE 0 END), 0.0) AS lost_weight_g,
                         COALESCE(SUM(CASE WHEN movement.kind IN ('receipt', 'defect', 'loss') THEN movement.weight_g ELSE 0 END), 0.0) AS processed_weight_g,
                         COALESCE(MAX(operation.expected_loss_percent), 0.0) AS expected_loss_percent
@@ -104,6 +110,8 @@ class CabochonWorkerOperationQualityReport(models.Model):
                     issued_weight_g,
                     received_weight_g,
                     defect_weight_g,
+                    detected_defect_weight_g,
+                    made_defect_weight_g,
                     lost_weight_g,
                     processed_weight_g,
                     CASE WHEN issued_weight_g > 0 THEN defect_weight_g / issued_weight_g * 100.0 ELSE 0.0 END AS defect_percent,

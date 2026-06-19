@@ -542,6 +542,57 @@ class CabochonStoneLot(models.Model):
         self._backfill_reference_field("cabochon_material_transfer_line", "stone_size", "stone_size_id", "cabochon_size")
         self._backfill_reference_field("cabochon_material_transfer_line", "shape", "shape_id", "cabochon_shape")
         self._backfill_reference_field("cabochon_material_transfer_line", "form_type", "form_type_id", "cabochon_form_type")
+
+        self.env.cr.execute(
+            """
+            WITH grouped AS (
+                SELECT
+                    location_id,
+                    company_id,
+                    MIN(id) AS keep_id,
+                    SUM(initial_weight_g) AS total_initial_weight_g,
+                    SUM(current_weight_g) AS total_current_weight_g
+                FROM cabochon_stone_lot
+                WHERE is_defect_lot
+                  AND state = 'available'
+                GROUP BY location_id, company_id
+            )
+            UPDATE cabochon_stone_lot lot
+               SET initial_weight_g = grouped.total_initial_weight_g,
+                   current_weight_g = grouped.total_current_weight_g,
+                   defect_kind = NULL
+              FROM grouped
+             WHERE lot.id = grouped.keep_id
+            """
+        )
+        self.env.cr.execute(
+            """
+            WITH grouped AS (
+                SELECT location_id, company_id, MIN(id) AS keep_id
+                FROM cabochon_stone_lot
+                WHERE is_defect_lot
+                  AND state = 'available'
+                GROUP BY location_id, company_id
+            )
+            UPDATE cabochon_stone_lot lot
+               SET current_weight_g = 0.0,
+                   state = 'consumed'
+              FROM grouped
+             WHERE lot.is_defect_lot
+               AND lot.state = 'available'
+               AND lot.location_id = grouped.location_id
+               AND lot.company_id = grouped.company_id
+               AND lot.id != grouped.keep_id
+            """
+        )
+        self.env.cr.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS cabochon_stone_lot_one_active_defect_per_location
+                ON cabochon_stone_lot (location_id, company_id)
+             WHERE is_defect_lot AND state = 'available'
+            """
+        )
+
     def _backfill_reference_field(self, source_table, text_column, id_column, reference_table):
         self.env.cr.execute(
             f"""
@@ -575,7 +626,7 @@ class CabochonProductionRequest(models.Model):
     _name = "cabochon.production.request"
     _inherit = ["mail.thread", "mail.activity.mixin"]
     _description = "Заявка на изготовление кабошонов"
-    _order = "state_order, priority desc, deadline, id desc"
+    _order = "id desc"
 
     name = fields.Char(string="Номер", default="Новый", copy=False, readonly=True)
     technologist_id = fields.Many2one(
@@ -619,7 +670,7 @@ class CabochonProductionRequest(models.Model):
         tracking=True,
     )
     planned_weight_g = fields.Float(string="Плановый вес к выдаче, г", digits=(16, 4), required=True)
-    deadline = fields.Datetime(string="Срок выполнения", tracking=True)
+    deadline = fields.Datetime(string="Срок выполнения", required=True, tracking=True)
     priority = fields.Selection(
         [("0", "Обычный"), ("1", "Срочно"), ("2", "Очень срочно")],
         string="Приоритет",
@@ -674,8 +725,10 @@ class CabochonProductionRequest(models.Model):
     )
     worker_load = fields.Integer(string="Текущая нагрузка работника", related="worker_id.cabochon_active_request_count")
     issued_weight_g = fields.Float(string="Выдано, г", compute="_compute_weights", store=True)
-    received_weight_g = fields.Float(string="Сдано годного, г", compute="_compute_weights", store=True)
+    received_weight_g = fields.Float(string="Сдано, г", compute="_compute_weights", store=True)
     defect_weight_g = fields.Float(string="Брак, г", compute="_compute_weights", store=True)
+    detected_defect_weight_g = fields.Float(string="Выявленный брак, г", compute="_compute_weights", store=True)
+    made_defect_weight_g = fields.Float(string="Сделанный брак, г", compute="_compute_weights", store=True)
     lost_weight_g = fields.Float(string="Потери, г", compute="_compute_weights", store=True)
     confirmed_at = fields.Datetime(string="Подтверждена")
     issued_at = fields.Datetime(string="Выдана")
@@ -755,12 +808,22 @@ class CabochonProductionRequest(models.Model):
         for request in self:
             request.state_order = order_by_state.get(request.state, 5)
 
-    @api.depends("movement_ids.kind", "movement_ids.weight_g")
+    @api.depends("movement_ids.kind", "movement_ids.defect_kind", "movement_ids.weight_g")
     def _compute_weights(self):
         for request in self:
             request.issued_weight_g = sum(request.movement_ids.filtered(lambda item: item.kind == "issue").mapped("weight_g"))
             request.received_weight_g = sum(request.movement_ids.filtered(lambda item: item.kind == "receipt").mapped("weight_g"))
             request.defect_weight_g = sum(request.movement_ids.filtered(lambda item: item.kind == "defect").mapped("weight_g"))
+            request.detected_defect_weight_g = sum(
+                request.movement_ids.filtered(
+                    lambda item: item.kind == "defect" and item.defect_kind == "detected"
+                ).mapped("weight_g")
+            )
+            request.made_defect_weight_g = sum(
+                request.movement_ids.filtered(
+                    lambda item: item.kind == "defect" and item.defect_kind == "made"
+                ).mapped("weight_g")
+            )
             request.lost_weight_g = sum(request.movement_ids.filtered(lambda item: item.kind == "loss").mapped("weight_g"))
 
     @api.depends("started_at", "closed_at")
@@ -809,15 +872,27 @@ class CabochonProductionRequest(models.Model):
         for request in self:
             request.show_receipt_destination_stage = bool(request.operation_ids.filtered("final_operation"))
 
-    @api.depends("operation_ids")
+    @api.depends("operation_ids", "source_lot_id")
     def _compute_eligible_lot_ids(self):
         lot_model = self.env["cabochon.stone.lot"].sudo()
         lots = lot_model.search([("state", "=", "available")])
         for request in self:
+            used_lot_ids = self.sudo().search(
+                [
+                    ("id", "!=", request.id or 0),
+                    ("state", "!=", "cancelled"),
+                    ("source_lot_id", "!=", False),
+                ]
+            ).mapped("source_lot_id").ids
+            available_lots = lots.filtered(
+                lambda lot, used_ids=set(used_lot_ids), selected=request.source_lot_id: lot.id not in used_ids
+                or lot == selected
+            )
+            available_lots = available_lots.filtered(lambda lot: not lot.is_defect_lot)
             if not request.operation_ids:
-                request.eligible_lot_ids = lots
+                request.eligible_lot_ids = available_lots
                 continue
-            request.eligible_lot_ids = lots.filtered(
+            request.eligible_lot_ids = available_lots.filtered(
                 lambda lot, operations=request.operation_ids: lot._is_operation_route_allowed(operations)
             )
 
@@ -847,8 +922,6 @@ class CabochonProductionRequest(models.Model):
         self._normalize_selected_operations()
         self._set_sort_type_from_operations()
         self._set_default_receipt_destination_stage()
-        if self.source_lot_id and self.source_lot_id not in self.eligible_lot_ids:
-            self.source_lot_id = False
         if not self.worker_id:
             return {
                 "domain": {
@@ -896,6 +969,8 @@ class CabochonProductionRequest(models.Model):
         for request in self:
             if float_compare(request.planned_weight_g, 0.0, precision_digits=4) <= 0:
                 raise ValidationError("Плановый вес к выдаче должен быть больше нуля.")
+            if request.source_lot_id.is_defect_lot:
+                raise ValidationError("Сводный мешок брака нельзя использовать как исходный мешок заявки.")
             allowed_ids = set(request.worker_id.sudo().cabochon_allowed_operation_ids.ids)
             if request.operation_ids and not set(request.operation_ids.ids).issubset(allowed_ids):
                 raise ValidationError("Работник не допущен ко всем операциям заявки.")
@@ -1157,7 +1232,9 @@ class CabochonProductionRequest(models.Model):
 
     def _ensure_receipt_transfer(self, issue_lines=None):
         self.ensure_one()
-        existing = self.receipt_ids.filtered(lambda item: item.transfer_type == "receipt" and item.state == "draft")
+        existing = self.receipt_ids.filtered(
+            lambda item: item.transfer_type == "receipt" and item.state in ("draft", "manager_confirmed")
+        )
         if existing:
             receipt = existing[:1]
             if issue_lines and not receipt.line_ids:
@@ -1326,7 +1403,11 @@ class CabochonMaterialTransfer(models.Model):
     )
     transfer_date = fields.Datetime(string="Дата и время", default=fields.Datetime.now, required=True, tracking=True)
     state = fields.Selection(
-        [("draft", "Ожидает обработки"), ("confirmed", "Подтверждено")],
+        [
+            ("draft", "Ожидает менеджера"),
+            ("manager_confirmed", "Ожидает работника"),
+            ("confirmed", "Подтверждено"),
+        ],
         default="draft",
         readonly=True,
         required=True,
@@ -1344,6 +1425,7 @@ class CabochonMaterialTransfer(models.Model):
     show_color_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
     show_size_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
     show_shape_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
+    can_worker_confirm = fields.Boolean(compute="_compute_can_worker_confirm")
     company_id = fields.Many2one(
         "res.company",
         string="Компания",
@@ -1384,7 +1466,7 @@ class CabochonMaterialTransfer(models.Model):
     @api.depends("state")
     def _compute_state_order(self):
         for transfer in self:
-            transfer.state_order = 9 if transfer.state == "confirmed" else 0
+            transfer.state_order = {"draft": 0, "manager_confirmed": 1, "confirmed": 9}.get(transfer.state, 5)
 
     @api.depends("operation_ids")
     def _compute_primary_operation_id(self):
@@ -1402,9 +1484,15 @@ class CabochonMaterialTransfer(models.Model):
             transfer.show_size_fields = transfer.show_sort_fields or transfer.show_press_fields
             transfer.show_shape_fields = transfer.show_press_fields
 
+    @api.depends_context("uid")
+    def _compute_can_worker_confirm(self):
+        is_admin = self.env.user.has_group("cabochon_base.group_cabochon_admin")
+        for transfer in self:
+            transfer.can_worker_confirm = bool(is_admin or transfer.worker_id.user_id == self.env.user)
+
     def write(self, vals):
-        if set(vals) - {"state"} and any(record.state == "confirmed" for record in self):
-            raise UserError("Подтвержденную выдачу/сдачу нельзя менять. Создайте корректировку.")
+        if set(vals) - {"state"} and any(record.state != "draft" for record in self):
+            raise UserError("Выдачу/сдачу после подтверждения менеджером нельзя менять.")
         result = super().write(vals)
         if {"manager_id", "state", "transfer_type", "request_id"}.intersection(vals):
             self._clear_manager_activities()
@@ -1412,9 +1500,10 @@ class CabochonMaterialTransfer(models.Model):
         return result
 
     def unlink(self):
-        if any(record.state == "confirmed" for record in self):
-            raise UserError("Подтвержденную выдачу/сдачу нельзя удалить. Создайте корректировку.")
+        if any(record.state != "draft" for record in self):
+            raise UserError("Выдачу/сдачу после подтверждения менеджером нельзя удалить.")
         self._clear_manager_activities()
+        self._clear_worker_activities()
         return super().unlink()
 
     @api.onchange("request_id", "transfer_type", "operation_ids")
@@ -1436,17 +1525,37 @@ class CabochonMaterialTransfer(models.Model):
         for transfer in self.filtered(lambda item: item.transfer_type != "issue"):
             transfer._set_receipt_loss_weights()
 
-    def action_confirm(self):
+    def action_manager_confirm(self):
         for transfer in self:
             if transfer.state != "draft":
                 continue
-            transfer._validate_before_confirm()
+            transfer._validate_before_manager_confirm()
+            transfer.state = "manager_confirmed"
+            transfer._clear_manager_activities()
+            transfer._notify_worker_activity()
+
+    def action_worker_confirm(self):
+        for transfer in self:
+            if transfer.state != "manager_confirmed":
+                continue
+            if (
+                not self.env.user.has_group("cabochon_base.group_cabochon_admin")
+                and transfer.worker_id.user_id != self.env.user
+            ):
+                raise UserError("Финально подтвердить документ может только назначенный работник или администратор.")
+            transfer.sudo()._execute_confirmed_transfer()
+
+    def action_confirm(self):
+        return self.action_manager_confirm()
+
+    def _execute_confirmed_transfer(self):
+        for transfer in self:
             if transfer.transfer_type == "issue":
                 transfer._confirm_issue()
             else:
                 transfer._confirm_receipt()
             transfer.state = "confirmed"
-            transfer._clear_manager_activities()
+            transfer._clear_worker_activities()
 
     def _notify_manager_activity(self):
         activity_type = self.env.ref("mail.mail_activity_data_todo", raise_if_not_found=False)
@@ -1492,7 +1601,49 @@ class CabochonMaterialTransfer(models.Model):
         )
         activities.with_context(cabochon_activity_system_update=True).unlink()
 
-    def _validate_before_confirm(self):
+    def _notify_worker_activity(self):
+        activity_type = self.env.ref("mail.mail_activity_data_todo", raise_if_not_found=False)
+        if not activity_type:
+            return
+        model_id = self.env["ir.model"]._get_id(self._name)
+        today = fields.Date.context_today(self)
+        for transfer in self.filtered(lambda item: item.state == "manager_confirmed" and item.worker_id.user_id):
+            title = "Нужно принять выдачу" if transfer.transfer_type == "issue" else "Нужно подтвердить сдачу"
+            existing = self.env["mail.activity"].sudo().search(
+                [
+                    ("res_model_id", "=", model_id),
+                    ("res_id", "=", transfer.id),
+                    ("activity_type_id", "=", activity_type.id),
+                    ("user_id", "=", transfer.worker_id.user_id.id),
+                    ("summary", "=", title),
+                ],
+                limit=1,
+            )
+            if not existing:
+                transfer.sudo().with_context(cabochon_activity_system_update=True).activity_schedule(
+                    activity_type_id=activity_type.id,
+                    date_deadline=today,
+                    summary=title,
+                    note="Менеджер склада подтвердил документ. Требуется подтверждение работника.",
+                    user_id=transfer.worker_id.user_id.id,
+                )
+
+    def _clear_worker_activities(self):
+        activity_type = self.env.ref("mail.mail_activity_data_todo", raise_if_not_found=False)
+        if not activity_type:
+            return
+        model_id = self.env["ir.model"]._get_id(self._name)
+        activities = self.env["mail.activity"].sudo().search(
+            [
+                ("res_model_id", "=", model_id),
+                ("res_id", "in", self.ids),
+                ("activity_type_id", "=", activity_type.id),
+                ("summary", "in", ("Нужно принять выдачу", "Нужно подтвердить сдачу")),
+            ]
+        )
+        activities.with_context(cabochon_activity_system_update=True).unlink()
+
+    def _validate_before_manager_confirm(self):
         self.ensure_one()
         if not self.line_ids:
             raise UserError("Добавьте строки.")
@@ -1600,7 +1751,7 @@ class CabochonMaterialTransfer(models.Model):
                     self._movement_values(line, "receipt", source_lot, line.weight_g, source_location, destination, new_lot)
                 )
             if line.detected_defect_weight_g:
-                defect_lot = line._create_defect_lot(defect_destination, "detected", line.detected_defect_weight_g)
+                defect_lot = line._add_to_defect_lot(defect_destination, line.detected_defect_weight_g)
                 self.env["cabochon.manufacturing.movement"].sudo().create(
                     self._movement_values(
                         line,
@@ -1614,7 +1765,7 @@ class CabochonMaterialTransfer(models.Model):
                     )
                 )
             if line.made_defect_weight_g:
-                defect_lot = line._create_defect_lot(defect_destination, "made", line.made_defect_weight_g)
+                defect_lot = line._add_to_defect_lot(defect_destination, line.made_defect_weight_g)
                 self.env["cabochon.manufacturing.movement"].sudo().create(
                     self._movement_values(
                         line,
@@ -1992,14 +2143,6 @@ class CabochonMaterialTransferLine(models.Model):
                 precision_digits=4,
             ):
                 raise UserError("В документе приема брака нельзя указывать годный вес или потери.")
-        if float_compare(self.defect_weight_g, 0.0, precision_digits=4) > 0:
-            forbidden_operations = self.transfer_id.operation_ids.filtered(lambda operation: not operation.accepts_weighed_defect)
-            if forbidden_operations:
-                operation_names = ", ".join(forbidden_operations.mapped("display_name"))
-                raise UserError(
-                    f"Для операций {operation_names} прием брака в граммах отключен. "
-                    "Укажите потери или выберите операцию, где брак принимается."
-                )
         if self.transfer_type == "receipt":
             self._validate_required_receipt_attributes()
 
@@ -2066,47 +2209,45 @@ class CabochonMaterialTransferLine(models.Model):
         }
         return self.env["cabochon.stone.lot"].sudo().create(values)
 
-    def _create_defect_lot(self, destination, defect_kind, weight_g):
+    def _add_to_defect_lot(self, destination, weight_g):
         self.ensure_one()
         if float_is_zero(weight_g, precision_digits=4):
             return self.env["cabochon.stone.lot"]
-        source_lot = self.lot_id or self.transfer_id.request_id.source_lot_id
+        lot_model = self.env["cabochon.stone.lot"].sudo()
+        defect_lot = lot_model.search(
+            [
+                ("location_id", "=", destination.id),
+                ("company_id", "=", self.transfer_id.company_id.id),
+                ("is_defect_lot", "=", True),
+                ("state", "=", "available"),
+            ],
+            order="id",
+            limit=1,
+        )
+        if defect_lot:
+            defect_lot.with_context(cabochon_inventory_movement=True).write(
+                {
+                    "initial_weight_g": defect_lot.initial_weight_g + weight_g,
+                    "current_weight_g": defect_lot.current_weight_g + weight_g,
+                }
+            )
+            return defect_lot
+        base_name = f"БРАК-{destination.id}"
+        name = base_name
+        index = 1
+        while lot_model.search_count(["|", ("name", "=", name), ("barcode", "=", name)]):
+            index += 1
+            name = f"{base_name}-{index}"
         values = {
-            "name": self._next_received_lot_name(source_lot, suffix=defect_kind.upper()),
-            "parent_id": source_lot.id if source_lot else False,
-            "supplier_id": source_lot.supplier_id.id if source_lot else False,
-            "fraction": source_lot.fraction if source_lot else False,
-            "fraction_id": source_lot.fraction_id.id if source_lot and source_lot.fraction_id else False,
-            "extraction_year": source_lot.extraction_year if source_lot else False,
-            "extraction_year_id": source_lot.extraction_year_id.id if source_lot and source_lot.extraction_year_id else False,
-            "extraction_month": source_lot.extraction_month if source_lot else False,
-            "waybill_number": source_lot.waybill_number if source_lot else False,
+            "name": name,
             "accepted_by_id": self.transfer_id.manager_id.id if self.transfer_id.manager_id else False,
-            "operation_id": self.transfer_id.operation_ids.sorted("sequence")[-1:].id if self.transfer_id.operation_ids else False,
             "location_id": destination.id,
             "initial_weight_g": weight_g,
             "current_weight_g": weight_g,
-            "color_id": self.color_id.id if self.color_id else source_lot.color_id.id if source_lot and source_lot.color_id else False,
-            "color": self.color or (source_lot.color if source_lot else False),
-            "stone_size_id": self.stone_size_id.id
-            if self.stone_size_id
-            else source_lot.stone_size_id.id
-            if source_lot and source_lot.stone_size_id
-            else False,
-            "stone_size": self.stone_size or (source_lot.stone_size if source_lot else False),
-            "shape_id": self.shape_id.id if self.shape_id else source_lot.shape_id.id if source_lot and source_lot.shape_id else False,
-            "shape": self.shape or (source_lot.shape if source_lot else False),
-            "form_type_id": self.form_type_id.id
-            if self.form_type_id
-            else source_lot.form_type_id.id
-            if source_lot and source_lot.form_type_id
-            else False,
-            "form_type": self.form_type or (source_lot.form_type if source_lot else False),
             "is_defect_lot": True,
-            "defect_kind": defect_kind,
             "company_id": self.transfer_id.company_id.id,
         }
-        return self.env["cabochon.stone.lot"].sudo().create(values)
+        return lot_model.with_context(skip_initial_lot_movement=True).create(values)
 
     def _next_received_lot_name(self, source_lot, suffix=False):
         if not source_lot:

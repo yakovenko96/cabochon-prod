@@ -5,8 +5,9 @@
     <menuitem id="menu_cabochon_manufacturing_work" name="Работа" parent="menu_cabochon_manufacturing_root" sequence="10"/>
     <menuitem id="menu_cabochon_worker_load_report" name="Панель технолога" parent="menu_cabochon_manufacturing_work" action="action_cabochon_worker_load_report" sequence="5" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
     <menuitem id="menu_cabochon_request" name="Заявки" parent="menu_cabochon_manufacturing_work" action="action_cabochon_request" sequence="10"/>
+    <menuitem id="menu_cabochon_employee_admission" name="Допуски сотрудников" parent="menu_cabochon_manufacturing_work" action="action_cabochon_employee_admission" sequence="12" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
     <menuitem id="menu_cabochon_external_receipt" name="Приход сырья" parent="menu_cabochon_manufacturing_work" action="action_cabochon_external_receipt_wizard" sequence="15" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_admin"/>
-    <menuitem id="menu_cabochon_transfer" name="Выдачи и сдачи" parent="menu_cabochon_manufacturing_work" action="action_cabochon_transfer" sequence="20" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
+    <menuitem id="menu_cabochon_transfer" name="Выдачи и сдачи" parent="menu_cabochon_manufacturing_work" action="action_cabochon_transfer" sequence="20" groups="cabochon_base.group_cabochon_user"/>
     <menuitem id="menu_cabochon_stone_lot" name="Остатки на складе" parent="menu_cabochon_manufacturing_work" action="action_cabochon_stone_lot" sequence="30"/>
     <menuitem id="menu_cabochon_corrections" name="Корректировки" parent="menu_cabochon_manufacturing_work" action="action_cabochon_movement_correction_wizard" sequence="40" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
 

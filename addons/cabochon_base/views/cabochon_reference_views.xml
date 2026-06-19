@@ -289,6 +289,7 @@
     <menuitem id="menu_cabochon_size" name="Размер" parent="menu_cabochon_references" action="action_cabochon_size" sequence="50"/>
     <menuitem id="menu_cabochon_defect_type" name="Тип брака" parent="menu_cabochon_references" action="action_cabochon_defect_type" sequence="60"/>
     <record id="menu_cabochon_stone_type" model="ir.ui.menu">
+        <field name="active">0</field>
         <field name="group_ids" eval="[(6, 0, [ref('cabochon_base.group_cabochon_manager'), ref('cabochon_base.group_cabochon_workshop_manager'), ref('cabochon_base.group_cabochon_admin')])]"/>
     </record>
 
@@ -310,6 +311,7 @@
     </record>
 
     <record id="menu_cabochon_extra_option" model="ir.ui.menu">
+        <field name="active">0</field>
         <field name="group_ids" eval="[(6, 0, [ref('cabochon_base.group_cabochon_workshop_manager'), ref('cabochon_base.group_cabochon_admin')])]"/>
     </record>
 
@@ -318,6 +320,7 @@
     </record>
 
     <record id="menu_cabochon_defect_type" model="ir.ui.menu">
+        <field name="active">0</field>
         <field name="group_ids" eval="[(6, 0, [ref('cabochon_base.group_cabochon_workshop_manager'), ref('cabochon_base.group_cabochon_admin')])]"/>
     </record>
 </odoo>
