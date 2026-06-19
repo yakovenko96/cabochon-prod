@@ -52,7 +52,7 @@
     <record id="rule_cabochon_request_manager_own_stock" model="ir.rule">
         <field name="name">Cabochon requests: managed warehouse</field>
         <field name="model_id" ref="model_cabochon_production_request"/>
-        <field name="domain_force">[('source_lot_id.location_id.manager_id.user_id', '=', user.id)]</field>
+        <field name="domain_force">['|', '|', ('source_lot_id.location_id.manager_id.user_id', '=', user.id), ('issue_id.manager_id.user_id', '=', user.id), ('receipt_ids.manager_id.user_id', '=', user.id)]</field>
         <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_manager')), (4, ref('cabochon_base.group_cabochon_finished_manager'))]"/>
     </record>
 
@@ -73,7 +73,7 @@
     <record id="rule_cabochon_request_line_manager_own_stock" model="ir.rule">
         <field name="name">Cabochon request lines: managed warehouse</field>
         <field name="model_id" ref="model_cabochon_production_request_operation_line"/>
-        <field name="domain_force">[('request_id.source_lot_id.location_id.manager_id.user_id', '=', user.id)]</field>
+        <field name="domain_force">['|', '|', ('request_id.source_lot_id.location_id.manager_id.user_id', '=', user.id), ('request_id.issue_id.manager_id.user_id', '=', user.id), ('request_id.receipt_ids.manager_id.user_id', '=', user.id)]</field>
         <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_manager')), (4, ref('cabochon_base.group_cabochon_finished_manager'))]"/>
     </record>
 

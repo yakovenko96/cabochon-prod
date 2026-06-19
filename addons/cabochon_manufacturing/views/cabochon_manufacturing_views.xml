@@ -30,7 +30,7 @@
                 <t t-call="web.basic_layout">
                     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
                     <div class="page" style="font-family: 'DejaVu Sans', Arial, sans-serif; padding: 8px; width: 95mm; min-height: 138mm;">
-                        <h2 style="margin: 0 0 8px 0;">Мешок <span t-field="lot.name"/></h2>
+                        <h2 style="margin: 0 0 8px 0;"><span t-field="lot.name"/></h2>
                         <div style="display: flex; gap: 24px; align-items: flex-start;">
                             <div>
                                 <img t-att-src="'/report/barcode/QR/%s?width=180&amp;height=180' % lot.barcode" alt="QR"/>
@@ -39,12 +39,13 @@
                             <div style="font-size: 14px; line-height: 1.7;">
                                 <div><strong>Вес:</strong> <span t-field="lot.current_weight_g"/> г</div>
                                 <div><strong>Зона:</strong> <span t-field="lot.location_id"/></div>
-                                <div><strong>Работник:</strong> <span t-field="lot.owner_employee_id"/></div>
-                                <div><strong>Фракция:</strong> <span t-field="lot.fraction_id"/></div>
-                                <div><strong>Год/месяц добычи:</strong> <span t-field="lot.extraction_year"/> / <span t-field="lot.extraction_month"/></div>
-                                <div><strong>Цвет:</strong> <span t-field="lot.color_id"/></div>
-                                <div><strong>Размер:</strong> <span t-field="lot.stone_size_id"/></div>
-                                <div><strong>Форма:</strong> <span t-field="lot.shape_id"/></div>
+                                <div t-if="lot.fraction_id"><strong>Фракция:</strong> <span t-field="lot.fraction_id"/></div>
+                                <div t-if="lot.extraction_year or lot.extraction_month"><strong>Год/месяц добычи:</strong> <span t-field="lot.extraction_year"/> / <span t-field="lot.extraction_month"/></div>
+                                <div t-if="lot.color_id"><strong>Цвет:</strong> <span t-field="lot.color_id"/></div>
+                                <div t-if="lot.stone_size_id"><strong>Размер:</strong> <span t-field="lot.stone_size_id"/></div>
+                                <div t-if="lot.shape_id"><strong>Форма:</strong> <span t-field="lot.shape_id"/></div>
+                                <div t-if="lot.form_type_id"><strong>Тип формы:</strong> <span t-field="lot.form_type_id"/></div>
+                                <div t-if="lot.defect_kind"><strong>Тип брака:</strong> <span t-field="lot.defect_kind"/></div>
                             </div>
                         </div>
                         <div style="margin-top: 14px;">
@@ -247,6 +248,8 @@
                 <field name="location_id" width="220px"/>
                 <field name="owner_employee_id" width="220px"/>
                 <field name="operation_id" width="220px"/>
+                <field name="is_defect_lot"/>
+                <field name="defect_kind"/>
                 <field name="color_id" width="140px"/>
                 <field name="stone_size_id" width="140px"/>
                 <field name="state"/>
@@ -285,6 +288,8 @@
                             <field name="location_id"/>
                             <field name="owner_employee_id"/>
                             <field name="operation_id"/>
+                            <field name="is_defect_lot"/>
+                            <field name="defect_kind"/>
                             <field name="initial_weight_g"/>
                             <field name="current_weight_g"/>
                         </group>
@@ -323,6 +328,7 @@
                                     <field name="color_id" width="140px"/>
                                     <field name="stone_size_id" width="140px"/>
                                     <field name="shape_id" width="150px"/>
+                                    <field name="defect_kind"/>
                                 </list>
                             </field>
                         </page>
@@ -515,6 +521,7 @@
                                 <list>
                                     <field name="movement_date"/>
                                     <field name="kind"/>
+                                    <field name="defect_kind"/>
                                     <field name="lot_id" width="160px"/>
                                     <field name="new_lot_id" width="160px"/>
                                     <field name="weight_g"/>
@@ -654,6 +661,8 @@
                 <field name="state_order" column_invisible="1"/>
                 <field name="total_weight_g" sum="Фактический вес"/>
                 <field name="total_defect_weight_g" sum="Брак"/>
+                <field name="total_detected_defect_weight_g" sum="Выявленный брак"/>
+                <field name="total_made_defect_weight_g" sum="Сделанный брак"/>
                 <field name="total_lost_weight_g" sum="Потери"/>
                 <field name="state"/>
             </list>
@@ -713,11 +722,14 @@
                             <field name="primary_operation_id" readonly="1"/>
                             <field name="show_sort_fields" invisible="1"/>
                             <field name="show_press_fields" invisible="1"/>
-                            <field name="show_color_size_fields" invisible="1"/>
+                            <field name="show_color_fields" invisible="1"/>
+                            <field name="show_size_fields" invisible="1"/>
                             <field name="show_shape_fields" invisible="1"/>
                             <field name="transfer_date" readonly="state == 'confirmed'"/>
                             <field name="total_weight_g"/>
                             <field name="total_defect_weight_g"/>
+                            <field name="total_detected_defect_weight_g"/>
+                            <field name="total_made_defect_weight_g"/>
                             <field name="total_lost_weight_g"/>
                         </group>
                     </group>
@@ -727,11 +739,13 @@
                             <field name="lot_id" width="160px"/>
                             <field name="weight_before_g"/>
                             <field name="weight_g" string="Фактический вес, г"/>
-                            <field name="defect_weight_g"/>
+                            <field name="detected_defect_weight_g"/>
+                            <field name="made_defect_weight_g"/>
+                            <field name="defect_weight_g" readonly="1"/>
                             <field name="lost_weight_g" readonly="transfer_type != 'issue'" force_save="1"/>
                             <field name="sort_type" width="160px" column_invisible="not parent.show_sort_fields" required="parent.show_sort_fields"/>
-                            <field name="color_id" width="140px" column_invisible="not parent.show_color_size_fields" required="parent.show_color_size_fields"/>
-                            <field name="stone_size_id" width="140px" column_invisible="not parent.show_color_size_fields" required="parent.show_color_size_fields"/>
+                            <field name="color_id" width="140px" column_invisible="not parent.show_color_fields" required="parent.show_color_fields"/>
+                            <field name="stone_size_id" width="140px" column_invisible="not parent.show_size_fields" required="parent.show_size_fields"/>
                             <field name="shape_id" width="150px" column_invisible="not parent.show_shape_fields" required="parent.show_shape_fields"/>
                             <field name="form_type_id" width="180px" column_invisible="1"/>
                             <field name="new_lot_id" readonly="1" width="160px" column_invisible="parent.state != 'confirmed'"/>
@@ -758,6 +772,7 @@
                 <field name="movement_date" width="170px"/>
                 <field name="name" width="150px"/>
                 <field name="kind"/>
+                <field name="defect_kind"/>
                 <field name="request_id" width="160px"/>
                 <field name="lot_id" width="160px"/>
                 <field name="new_lot_id" width="160px"/>
@@ -792,6 +807,8 @@
                 <field name="operation_ids"/>
                 <field name="primary_operation_id"/>
                 <filter name="defect" string="Брак" domain="[('kind','=','defect')]"/>
+                <filter name="detected_defect" string="Выявленный брак" domain="[('kind','=','defect'),('defect_kind','=','detected')]"/>
+                <filter name="made_defect" string="Сделанный брак" domain="[('kind','=','defect'),('defect_kind','=','made')]"/>
                 <filter name="loss" string="Потери" domain="[('kind','=','loss')]"/>
                 <filter name="loss_over_norm" string="Потери выше нормы" domain="[('is_loss_over_norm','=',True)]"/>
                 <group>
@@ -822,6 +839,7 @@
                     <group>
                         <group>
                             <field name="kind"/>
+                            <field name="defect_kind"/>
                             <field name="movement_date"/>
                             <field name="request_id"/>
                             <field name="transfer_id"/>
@@ -863,6 +881,7 @@
             <pivot string="Отчет по движениям">
                 <field name="primary_operation_id" type="row"/>
                 <field name="worker_id" type="row"/>
+                <field name="defect_kind" type="row"/>
                 <field name="movement_date" interval="month" type="col"/>
                 <field name="weight_g" type="measure"/>
                 <field name="source_weight_before_g" type="measure"/>
