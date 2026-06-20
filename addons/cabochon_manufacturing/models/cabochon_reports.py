@@ -31,7 +31,7 @@ class CabochonWorkerLoadReport(models.Model):
                     request.company_id AS company_id,
                     SUM(
                         CASE
-                            WHEN request.state IN ('confirmed', 'issued', 'in_progress', 'partially_done')
+                            WHEN request.state IN ('confirmed', 'in_progress', 'partially_done')
                             THEN 1 ELSE 0
                         END
                     )::integer AS active_request_count,
@@ -59,7 +59,7 @@ class CabochonWorkerOperationQualityReport(models.Model):
     _order = "total_loss_percent desc, defect_percent desc, worker_id, operation_id"
 
     worker_id = fields.Many2one("hr.employee", string="Работник", readonly=True)
-    operation_id = fields.Many2one("cabochon.manufacturing.operation", string="Операция", readonly=True)
+    operation_id = fields.Many2one("cabochon.manufacturing.operation", string="Завершающая операция", readonly=True)
     company_id = fields.Many2one("res.company", string="Компания", readonly=True)
     movement_count = fields.Integer(string="Движений", readonly=True)
     issued_weight_g = fields.Float(string="Выдано, г", readonly=True)
@@ -69,11 +69,11 @@ class CabochonWorkerOperationQualityReport(models.Model):
     made_defect_weight_g = fields.Float(string="Сделанный брак, г", readonly=True)
     lost_weight_g = fields.Float(string="Потери, г", readonly=True)
     processed_weight_g = fields.Float(string="Обработано, г", readonly=True)
-    defect_percent = fields.Float(string="Брак, %", readonly=True)
-    loss_percent = fields.Float(string="Потери, %", readonly=True)
-    total_loss_percent = fields.Float(string="Брак + потери, %", readonly=True)
-    expected_loss_percent = fields.Float(string="Норма потерь, %", readonly=True)
-    loss_over_norm_percent = fields.Float(string="Потери сверх нормы, %", readonly=True)
+    defect_percent = fields.Float(string="Брак, %", readonly=True, aggregator=False)
+    loss_percent = fields.Float(string="Потери, %", readonly=True, aggregator=False)
+    total_loss_percent = fields.Float(string="Брак + потери, %", readonly=True, aggregator=False)
+    expected_loss_percent = fields.Float(string="Норма потерь, %", readonly=True, aggregator=False)
+    loss_over_norm_percent = fields.Float(string="Потери сверх нормы, %", readonly=True, aggregator=False)
 
     def init(self):
         tools.drop_view_if_exists(self.env.cr, self._table)
@@ -82,6 +82,7 @@ class CabochonWorkerOperationQualityReport(models.Model):
             CREATE OR REPLACE VIEW cabochon_worker_operation_quality_report AS (
                 WITH quality AS (
                     SELECT
+                        MIN(movement.id) AS id,
                         movement.worker_id AS worker_id,
                         movement.primary_operation_id AS operation_id,
                         movement.company_id AS company_id,
@@ -102,7 +103,7 @@ class CabochonWorkerOperationQualityReport(models.Model):
                     GROUP BY movement.worker_id, movement.primary_operation_id, movement.company_id
                 )
                 SELECT
-                    row_number() OVER ()::integer AS id,
+                    id,
                     worker_id,
                     operation_id,
                     company_id,

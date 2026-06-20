@@ -82,7 +82,7 @@ docker exec odoo19-web odoo -d Cabachon -u cabochon_base,cabochon_manufacturing 
 docker exec odoo19-web odoo -d Cabachon -i cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
 ```
 
-Helper-скрипт:
+Helper-скрипт обновления:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install_cabochon_modules.ps1 -Database Cabachon
@@ -101,16 +101,16 @@ python -m ruff check addons/cabochon_base addons/cabochon_manufacturing scripts
 python -m compileall -q addons/cabochon_base addons/cabochon_manufacturing scripts
 ```
 
-Odoo-тесты Cabochon base:
+Odoo-тесты Cabochon:
 
 ```powershell
-docker exec odoo19-web odoo -d Cabachon -u cabochon_base,cabochon_manufacturing --test-enable --test-tags /cabochon_base --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --http-port 8070
+docker exec odoo19-web odoo -d Cabachon -u cabochon_base,cabochon_manufacturing --test-enable --test-tags /cabochon_base,/cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --http-port 8070
 ```
 
 ## Модули
 
-`cabochon_base` содержит меню, группы доступа, справочники, Cabochon-поля
-продуктов, журнал действий и защиту `mail.activity`.
+`cabochon_base` содержит меню, группы доступа, активные справочники, журнал
+действий и защиту `mail.activity`.
 
 `cabochon_manufacturing` содержит операции, складские зоны, мешки, внешний
 приход, заявки, выдачи/сдачи, движения, корректировки, отчеты и этикетки.
@@ -120,10 +120,11 @@ docker exec odoo19-web odoo -d Cabachon -u cabochon_base,cabochon_manufacturing 
 1. Менеджер склада оформляет внешний приход.
 2. Технолог создает заявку на операции и выбирает работника.
 3. Подтверждение заявки создает выдачу.
-4. Подтверждение выдачи переносит вес на личный склад работника.
+4. Менеджер подтверждает выдачу, затем работник подтверждает получение.
 5. Сдача фиксирует годный вес, брак и потери.
-6. Подтверждение сдачи создает неизменяемые движения и результирующие мешки.
-7. Ошибки исправляются корректирующими движениями, а не изменением истории.
+6. Менеджер подтверждает прием сдачи, затем работник подтверждает передачу.
+7. Второе подтверждение создает неизменяемые движения и результирующие мешки.
+8. Ошибки исправляются корректирующими движениями, а не изменением истории.
 
 ## Документация
 

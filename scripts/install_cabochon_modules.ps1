@@ -14,12 +14,12 @@ $modules = @(
     "cabochon_manufacturing"
 )
 
-Write-Host "Installing/updating Cabochon modules in database '$Database'..."
+Write-Host "Updating Cabochon modules in database '$Database'..."
 Write-Host "Order: $($modules -join ', ')"
 
 docker exec $OdooContainer odoo `
     -d $Database `
-    -i ($modules -join ",") `
+    -u ($modules -join ",") `
     --stop-after-init `
     --db_host $DbHost `
     --db_port $DbPort `
@@ -27,4 +27,4 @@ docker exec $OdooContainer odoo `
     --db_password $DbPassword `
     --log-handler odoo.tools.convert:DEBUG
 
-Write-Host "Cabochon modules are installed or already available."
+Write-Host "Cabochon modules are updated."

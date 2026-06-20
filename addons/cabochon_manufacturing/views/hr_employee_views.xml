@@ -6,19 +6,14 @@
         <field name="inherit_id" ref="hr.view_employee_form"/>
         <field name="arch" type="xml">
             <xpath expr="//notebook" position="inside">
-                <page string="Изготовление кабошонов">
+                <page string="Изготовление кабошонов" groups="cabochon_base.group_cabochon_admin">
                     <group>
                         <field name="cabochon_allowed_operation_ids" widget="many2many_tags"/>
-                        <field name="cabochon_active_request_count"/>
+                        <field name="cabochon_active_request_count" readonly="1"/>
                     </group>
                 </page>
             </xpath>
         </field>
     </record>
 
-    <record id="action_cabochon_employee_admission" model="ir.actions.act_window">
-        <field name="name">Допуски сотрудников</field>
-        <field name="res_model">hr.employee</field>
-        <field name="view_mode">list,form</field>
-    </record>
 </odoo>

@@ -45,7 +45,6 @@
                                 <div t-if="lot.stone_size_id"><strong>Размер:</strong> <span t-field="lot.stone_size_id"/></div>
                                 <div t-if="lot.shape_id"><strong>Форма:</strong> <span t-field="lot.shape_id"/></div>
                                 <div t-if="lot.form_type_id"><strong>Тип формы:</strong> <span t-field="lot.form_type_id"/></div>
-                                <div t-if="lot.defect_kind"><strong>Тип брака:</strong> <span t-field="lot.defect_kind"/></div>
                             </div>
                         </div>
                         <div style="margin-top: 14px;">
@@ -66,9 +65,7 @@
                 <field name="name" width="260px"/>
                 <field name="code" width="120px"/>
                 <field name="warehouse_stage" width="180px"/>
-                <field name="creates_split_lots"/>
                 <field name="final_operation"/>
-                <field name="accepts_weighed_defect"/>
                 <field name="expected_loss_percent"/>
             </list>
         </field>
@@ -85,9 +82,7 @@
                         <field name="code"/>
                         <field name="sequence"/>
                         <field name="warehouse_stage"/>
-                        <field name="creates_split_lots"/>
                         <field name="final_operation"/>
-                        <field name="accepts_weighed_defect"/>
                         <field name="expected_loss_percent"/>
                         <field name="active"/>
                     </group>
@@ -112,7 +107,6 @@
                 <field name="code" width="180px"/>
                 <field name="employee_id" width="220px"/>
                 <field name="manager_id" width="220px"/>
-                <field name="stock_location_id" width="240px"/>
             </list>
         </field>
     </record>
@@ -128,7 +122,6 @@
                         <field name="code"/>
                         <field name="employee_id" invisible="code != 'employee'"/>
                         <field name="manager_id" invisible="code == 'employee'"/>
-                        <field name="stock_location_id"/>
                         <field name="sequence"/>
                         <field name="active"/>
                     </group>
@@ -149,7 +142,6 @@
         <field name="arch" type="xml">
             <list>
                 <field name="year"/>
-                <field name="name"/>
                 <field name="active"/>
             </list>
         </field>
@@ -163,7 +155,6 @@
                 <sheet>
                     <group>
                         <field name="year"/>
-                        <field name="name"/>
                         <field name="active"/>
                     </group>
                 </sheet>
@@ -182,7 +173,6 @@
         <field name="model">cabochon.fraction</field>
         <field name="arch" type="xml">
             <list>
-                <field name="sequence" widget="handle"/>
                 <field name="name"/>
                 <field name="active"/>
             </list>
@@ -197,7 +187,6 @@
                 <sheet>
                     <group>
                         <field name="name"/>
-                        <field name="sequence"/>
                         <field name="active"/>
                     </group>
                 </sheet>
@@ -223,6 +212,7 @@
                 <field name="owner_employee_id"/>
                 <filter name="available" string="На складе" domain="[('state','=','available')]"/>
                 <filter name="issued" string="Выдано" domain="[('state','=','issued')]"/>
+                <filter name="inventory_difference" string="Ожидает инвентаризации" domain="[('state','=','inventory_difference')]"/>
                 <group>
                     <filter name="group_location" string="Зона" context="{'group_by': 'location_id'}"/>
                     <filter name="group_year" string="Год добычи" context="{'group_by': 'extraction_year'}"/>
@@ -236,7 +226,7 @@
         <field name="name">cabochon.stone.lot.list</field>
         <field name="model">cabochon.stone.lot</field>
         <field name="arch" type="xml">
-            <list create="0" edit="0" delete="0" decoration-warning="state == 'issued'">
+            <list create="0" edit="0" delete="0" decoration-warning="state == 'issued'" decoration-danger="state == 'inventory_difference'">
                 <field name="name" width="150px"/>
                 <field name="fraction_id" width="180px"/>
                 <field name="extraction_year_id"/>
@@ -244,9 +234,7 @@
                 <field name="current_weight_g" sum="Текущий вес"/>
                 <field name="location_id" width="220px"/>
                 <field name="owner_employee_id" width="220px"/>
-                <field name="operation_id" width="220px"/>
-                <field name="is_defect_lot"/>
-                <field name="defect_kind"/>
+                <field name="completed_operation_ids" widget="many2many_tags" width="300px"/>
                 <field name="color_id" width="140px"/>
                 <field name="stone_size_id" width="140px"/>
                 <field name="state"/>
@@ -284,9 +272,8 @@
                             <field name="parent_id"/>
                             <field name="location_id"/>
                             <field name="owner_employee_id"/>
-                            <field name="operation_id"/>
+                            <field name="completed_operation_ids" widget="many2many_tags"/>
                             <field name="is_defect_lot"/>
-                            <field name="defect_kind"/>
                             <field name="initial_weight_g"/>
                             <field name="current_weight_g"/>
                         </group>
@@ -325,7 +312,6 @@
                                     <field name="color_id" width="140px"/>
                                     <field name="stone_size_id" width="140px"/>
                                     <field name="shape_id" width="150px"/>
-                                    <field name="defect_kind"/>
                                 </list>
                             </field>
                         </page>
@@ -341,7 +327,7 @@
         <field name="res_model">cabochon.stone.lot</field>
         <field name="view_mode">list,form,pivot,graph</field>
         <field name="search_view_id" ref="view_cabochon_stone_lot_search"/>
-        <field name="domain">[('state','in',['available','issued']),('current_weight_g','&gt;',0)]</field>
+        <field name="domain">[('state','in',['available','issued','inventory_difference']),('current_weight_g','&gt;',0)]</field>
     </record>
 
     <record id="view_cabochon_external_receipt_wizard_form" model="ir.ui.view">
@@ -418,9 +404,9 @@
                 <field name="technologist_id"/>
                 <field name="operation_ids"/>
                 <field name="source_lot_id"/>
-                <filter name="waiting_action" string="Ожидает действия" domain="[('state','in',['draft','confirmed','issued','in_progress','partially_done'])]"/>
+                <filter name="waiting_action" string="Ожидает действия" domain="[('state','in',['draft','confirmed','in_progress','partially_done'])]"/>
                 <filter name="overdue" string="Просрочено" domain="[('is_overdue','=',True)]"/>
-                <filter name="in_work" string="В работе" domain="[('state','in',['issued','in_progress','partially_done'])]"/>
+                <filter name="in_work" string="В работе" domain="[('state','in',['in_progress','partially_done'])]"/>
                 <filter name="my_technology" string="Мои заявки технолога" domain="[('technologist_id.user_id','=',uid)]"/>
                 <filter name="my_worker" string="Я работник" domain="[('worker_id.user_id','=',uid)]"/>
                 <filter name="closed" string="Закрытые" domain="[('state','in',['done','cancelled'])]"/>
@@ -441,11 +427,10 @@
         <field name="arch" type="xml">
             <form>
                 <header>
-                    <button name="action_confirm" string="Подтвердить" type="object" class="btn-primary" invisible="state != 'draft'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
-                    <button name="action_start" string="В работу" type="object" invisible="state != 'issued'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
-                    <button name="action_create_receipt" string="Создать сдачу" type="object" invisible="state not in ('issued','in_progress','partially_done')" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
-                    <button name="action_close" string="Закрыть" type="object" invisible="state not in ('in_progress','partially_done')" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
-                    <button name="action_cancel" string="Отменить" type="object" invisible="state != 'draft'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
+                    <button name="action_confirm" string="Подтвердить" type="object" class="btn-primary" invisible="state != 'draft'" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
+                    <button name="action_create_receipt" string="Создать сдачу" type="object" invisible="state not in ('in_progress','partially_done')" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
+                    <button name="action_close" string="Закрыть" type="object" invisible="state not in ('in_progress','partially_done')" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
+                    <button name="action_cancel" string="Отменить" type="object" invisible="state != 'draft'" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
                     <field name="state" widget="statusbar"/>
                 </header>
                 <sheet>
@@ -586,8 +571,8 @@
         <field name="arch" type="xml">
             <form>
                 <header>
-                    <button name="action_start" string="Начать" type="object" class="btn-primary" invisible="state != 'pending'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
-                    <button name="action_finish" string="Завершить" type="object" invisible="state == 'done'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
+                    <button name="action_start" string="Начать" type="object" class="btn-primary" invisible="state != 'pending'" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
+                    <button name="action_finish" string="Завершить" type="object" invisible="state == 'done'" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
                     <field name="state" widget="statusbar"/>
                 </header>
                 <sheet>
@@ -760,13 +745,6 @@
         </field>
     </record>
 
-    <record id="action_cabochon_transfer" model="ir.actions.act_window">
-        <field name="name">Выдачи и сдачи</field>
-        <field name="res_model">cabochon.material.transfer</field>
-        <field name="view_mode">list,form,pivot,graph</field>
-        <field name="search_view_id" ref="view_cabochon_transfer_search"/>
-    </record>
-
     <record id="action_cabochon_my_transfer" model="ir.actions.act_window">
         <field name="name">Мои получения и сдачи</field>
         <field name="res_model">cabochon.material.transfer</field>
@@ -928,14 +906,6 @@
         <field name="search_view_id" ref="view_cabochon_movement_search"/>
     </record>
 
-    <record id="action_cabochon_defect_report" model="ir.actions.act_window">
-        <field name="name">Брак и потери по сотрудникам и операциям</field>
-        <field name="res_model">cabochon.worker.operation.quality.report</field>
-        <field name="view_mode">list,pivot,graph</field>
-        <field name="domain">[]</field>
-        <field name="context">{'search_default_group_worker': 1, 'search_default_group_operation': 1}</field>
-    </record>
-
     <record id="view_cabochon_worker_operation_quality_report_list" model="ir.ui.view">
         <field name="name">cabochon.worker.operation.quality.report.list</field>
         <field name="model">cabochon.worker.operation.quality.report</field>
@@ -970,13 +940,18 @@
                 <filter name="loss_over_norm" string="Потери выше нормы" domain="[('loss_over_norm_percent','&gt;',0)]"/>
                 <group>
                     <filter name="group_worker" string="Работник" context="{'group_by': 'worker_id'}"/>
-                    <filter name="group_operation" string="Операция" context="{'group_by': 'operation_id'}"/>
+                    <filter name="group_operation" string="Завершающая операция" context="{'group_by': 'operation_id'}"/>
                 </group>
             </search>
         </field>
     </record>
 
     <record id="action_cabochon_defect_report" model="ir.actions.act_window">
+        <field name="name">Брак и потери по сотрудникам и операциям</field>
+        <field name="res_model">cabochon.worker.operation.quality.report</field>
+        <field name="view_mode">list,pivot,graph</field>
+        <field name="domain">[]</field>
+        <field name="context">{'search_default_group_worker': 1, 'search_default_group_operation': 1}</field>
         <field name="search_view_id" ref="view_cabochon_worker_operation_quality_report_search"/>
     </record>
 
@@ -993,10 +968,6 @@
                 <field name="detected_defect_weight_g" type="measure"/>
                 <field name="made_defect_weight_g" type="measure"/>
                 <field name="lost_weight_g" type="measure"/>
-                <field name="defect_percent" type="measure"/>
-                <field name="loss_percent" type="measure"/>
-                <field name="total_loss_percent" type="measure"/>
-                <field name="loss_over_norm_percent" type="measure"/>
             </pivot>
         </field>
     </record>
@@ -1007,18 +978,10 @@
         <field name="arch" type="xml">
             <graph string="Качество по операциям" type="bar">
                 <field name="operation_id"/>
-                <field name="total_loss_percent" type="measure"/>
-                <field name="loss_over_norm_percent" type="measure"/>
+                <field name="defect_weight_g" type="measure"/>
+                <field name="lost_weight_g" type="measure"/>
             </graph>
         </field>
-    </record>
-
-    <record id="action_cabochon_worker_operation_quality_report" model="ir.actions.act_window">
-        <field name="name">Качество по работникам и операциям</field>
-        <field name="res_model">cabochon.worker.operation.quality.report</field>
-        <field name="view_mode">list,pivot,graph</field>
-        <field name="search_view_id" ref="view_cabochon_worker_operation_quality_report_search"/>
-        <field name="context">{'search_default_group_worker': 1, 'search_default_group_operation': 1}</field>
     </record>
 
     <record id="view_cabochon_movement_correction_wizard_form" model="ir.ui.view">

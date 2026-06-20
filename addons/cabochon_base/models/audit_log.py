@@ -3,9 +3,6 @@ from odoo.exceptions import UserError
 
 AUDITED_MODELS = {
     "cabochon.color",
-    "cabochon.defect.type",
-    "cabochon.drilled.option",
-    "cabochon.extra.option",
     "cabochon.form.type",
     "cabochon.manufacturing.location",
     "cabochon.manufacturing.movement",
@@ -17,11 +14,7 @@ AUDITED_MODELS = {
     "cabochon.shape",
     "cabochon.size",
     "cabochon.stone.lot",
-    "cabochon.stone.type",
     "hr.employee",
-    "product.product",
-    "product.template",
-    "stock.location",
 }
 
 
@@ -87,7 +80,10 @@ class CabochonAuditBase(models.AbstractModel):
         audit_snapshots = {}
         if self._cabochon_audit_should_track_model() and vals:
             field_names = [name for name in vals if name in self._fields]
-            for record in self.filtered(lambda item: item._cabochon_audit_should_track_record()):
+            tracked_records = self.filtered(lambda item: item._cabochon_audit_should_track_record())
+            if self._name == "hr.employee" and "cabochon_allowed_operation_ids" in vals:
+                tracked_records |= self
+            for record in tracked_records:
                 audit_snapshots[record.id] = {
                     "record": record,
                     "old_values": record._cabochon_audit_values(field_names),
@@ -138,16 +134,10 @@ class CabochonAuditBase(models.AbstractModel):
 
     def _cabochon_audit_should_track_record(self):
         self.ensure_one()
-        if self._name in ("product.template", "product.product"):
-            template = self.product_tmpl_id if self._name == "product.product" else self
-            return bool(template.is_cabochon_stone or template.is_cabochon_finished_product)
         if self._name == "hr.employee":
-            return bool("cabochon_allowed_operation_ids" in self._fields and self.cabochon_allowed_operation_ids)
-        if self._name == "stock.location":
-            if "cabochon.manufacturing.location" not in self.env:
-                return False
             return bool(
-                self.env["cabochon.manufacturing.location"].sudo().search_count([("stock_location_id", "=", self.id)])
+                "cabochon_allowed_operation_ids" in self._fields
+                and self.sudo().cabochon_allowed_operation_ids
             )
         return True
 
@@ -179,7 +169,7 @@ class CabochonAuditBase(models.AbstractModel):
         self.env["cabochon.audit.log"].sudo().with_context(skip_cabochon_audit=True).create(
             {
                 "action_date": fields.Datetime.now(),
-                "user_id": self.env.user.id,
+                "user_id": self.env.context.get("cabochon_audit_user_id", self.env.user.id),
                 "action": action,
                 "model_name": model_name,
                 "model_description": model_description,

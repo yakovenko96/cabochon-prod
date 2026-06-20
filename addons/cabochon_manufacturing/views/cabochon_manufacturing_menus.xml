@@ -5,7 +5,6 @@
     <menuitem id="menu_cabochon_manufacturing_work" name="Работа" parent="menu_cabochon_manufacturing_root" sequence="10"/>
     <menuitem id="menu_cabochon_worker_load_report" name="Панель технолога" parent="menu_cabochon_manufacturing_work" action="action_cabochon_worker_load_report" sequence="5" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
     <menuitem id="menu_cabochon_request" name="Заявки" parent="menu_cabochon_manufacturing_work" action="action_cabochon_request" sequence="10"/>
-    <menuitem id="menu_cabochon_employee_admission" name="Допуски сотрудников" parent="menu_cabochon_manufacturing_work" action="action_cabochon_employee_admission" sequence="12" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
     <menuitem id="menu_cabochon_external_receipt" name="Приход сырья" parent="menu_cabochon_manufacturing_work" action="action_cabochon_external_receipt_wizard" sequence="15" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_admin"/>
     <menuitem id="menu_cabochon_transfer" name="Мои получения и сдачи" parent="menu_cabochon_manufacturing_work" action="action_cabochon_my_transfer" sequence="20" groups="cabochon_base.group_cabochon_user"/>
     <menuitem id="menu_cabochon_managed_transfer" name="Выдачи и прием от сотрудников" parent="menu_cabochon_manufacturing_work" action="action_cabochon_managed_transfer" sequence="21" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
@@ -15,7 +14,6 @@
     <menuitem id="menu_cabochon_manufacturing_reports" name="Отчеты" parent="menu_cabochon_manufacturing_root" sequence="20"/>
     <menuitem id="menu_cabochon_movement" name="Журнал движений" parent="menu_cabochon_manufacturing_reports" action="action_cabochon_movement" sequence="10"/>
     <menuitem id="menu_cabochon_defect_report" name="Брак и потери по сотрудникам и операциям" parent="menu_cabochon_manufacturing_reports" action="action_cabochon_defect_report" sequence="20" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
-    <menuitem id="menu_cabochon_quality_report" name="Качество по работникам и операциям" parent="menu_cabochon_manufacturing_reports" action="action_cabochon_worker_operation_quality_report" sequence="25" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
     <menuitem id="menu_cabochon_operation_time" name="Отчет по времени операций" parent="menu_cabochon_manufacturing_reports" action="action_cabochon_request_operation_line" sequence="30"/>
 
     <menuitem id="menu_cabochon_manufacturing_config" name="Настройки" parent="menu_cabochon_manufacturing_root" sequence="90" groups="cabochon_base.group_cabochon_admin"/>

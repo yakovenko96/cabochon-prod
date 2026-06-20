@@ -112,8 +112,8 @@ python -m ruff check addons/cabochon_base addons/cabochon_manufacturing scripts
 
 `addons/cabochon_base`
 
-Base module. Defines root menu, access groups, reference catalogs, product
-template fields, audit log, and Cabochon mail activity rules.
+Base module. Defines root menu, access groups, active reference catalogs, audit
+log, and Cabochon mail activity rules.
 
 `addons/cabochon_manufacturing`
 

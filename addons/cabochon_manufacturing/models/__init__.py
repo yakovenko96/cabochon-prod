@@ -1,1 +1,10 @@
-from . import cabochon_manufacturing, cabochon_reports, hr_employee
+from . import (
+    cabochon_reports,
+    catalogs,
+    external_receipt,
+    hr_employee,
+    material_transfer,
+    movement,
+    production_request,
+    stone_lot,
+)

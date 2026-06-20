@@ -1,326 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <record id="view_cabochon_stone_type_tree" model="ir.ui.view">
-        <field name="name">cabochon.stone.type.list</field>
-        <field name="model">cabochon.stone.type</field>
-        <field name="arch" type="xml">
-            <list>
-                <field name="name"/>
-                <field name="description"/>
-                <field name="active"/>
-            </list>
-        </field>
-    </record>
-
-    <record id="view_cabochon_stone_type_form" model="ir.ui.view">
-        <field name="name">cabochon.stone.type.form</field>
-        <field name="model">cabochon.stone.type</field>
-        <field name="arch" type="xml">
-            <form>
-                <sheet>
-                    <group>
-                        <field name="name"/>
-                        <field name="description"/>
-                        <field name="active"/>
-                    </group>
-                </sheet>
-            </form>
-        </field>
-    </record>
-
-    <record id="action_cabochon_stone_type" model="ir.actions.act_window">
-        <field name="name">Тип сырья</field>
-        <field name="res_model">cabochon.stone.type</field>
-        <field name="view_mode">list,form</field>
-    </record>
-
     <record id="view_cabochon_form_type_tree" model="ir.ui.view">
         <field name="name">cabochon.form.type.list</field>
         <field name="model">cabochon.form.type</field>
         <field name="arch" type="xml">
-            <list>
-                <field name="name"/>
-                <field name="description"/>
-                <field name="active"/>
-            </list>
+            <list><field name="name"/><field name="description"/><field name="active"/></list>
         </field>
     </record>
-
     <record id="view_cabochon_form_type_form" model="ir.ui.view">
         <field name="name">cabochon.form.type.form</field>
         <field name="model">cabochon.form.type</field>
         <field name="arch" type="xml">
-            <form>
-                <sheet>
-                    <group>
-                        <field name="name"/>
-                        <field name="description"/>
-                        <field name="active"/>
-                    </group>
-                </sheet>
-            </form>
+            <form><sheet><group><field name="name"/><field name="description"/><field name="active"/></group></sheet></form>
         </field>
     </record>
-
     <record id="action_cabochon_form_type" model="ir.actions.act_window">
-        <field name="name">Тип формы</field>
-        <field name="res_model">cabochon.form.type</field>
-        <field name="view_mode">list,form</field>
+        <field name="name">Тип формы</field><field name="res_model">cabochon.form.type</field><field name="view_mode">list,form</field>
     </record>
 
     <record id="view_cabochon_shape_tree" model="ir.ui.view">
-        <field name="name">cabochon.shape.list</field>
-        <field name="model">cabochon.shape</field>
-        <field name="arch" type="xml">
-            <list>
-                <field name="name"/>
-                <field name="description"/>
-                <field name="active"/>
-            </list>
-        </field>
+        <field name="name">cabochon.shape.list</field><field name="model">cabochon.shape</field>
+        <field name="arch" type="xml"><list><field name="name"/><field name="description"/><field name="active"/></list></field>
     </record>
-
     <record id="view_cabochon_shape_form" model="ir.ui.view">
-        <field name="name">cabochon.shape.form</field>
-        <field name="model">cabochon.shape</field>
-        <field name="arch" type="xml">
-            <form>
-                <sheet>
-                    <group>
-                        <field name="name"/>
-                        <field name="description"/>
-                        <field name="active"/>
-                    </group>
-                </sheet>
-            </form>
-        </field>
+        <field name="name">cabochon.shape.form</field><field name="model">cabochon.shape</field>
+        <field name="arch" type="xml"><form><sheet><group><field name="name"/><field name="description"/><field name="active"/></group></sheet></form></field>
     </record>
-
     <record id="action_cabochon_shape" model="ir.actions.act_window">
-        <field name="name">Форма</field>
-        <field name="res_model">cabochon.shape</field>
-        <field name="view_mode">list,form</field>
+        <field name="name">Форма</field><field name="res_model">cabochon.shape</field><field name="view_mode">list,form</field>
     </record>
 
     <record id="view_cabochon_color_tree" model="ir.ui.view">
-        <field name="name">cabochon.color.list</field>
-        <field name="model">cabochon.color</field>
-        <field name="arch" type="xml">
-            <list>
-                <field name="name"/>
-                <field name="hex_code"/>
-                <field name="description"/>
-                <field name="active"/>
-            </list>
-        </field>
+        <field name="name">cabochon.color.list</field><field name="model">cabochon.color</field>
+        <field name="arch" type="xml"><list><field name="name"/><field name="hex_code"/><field name="description"/><field name="active"/></list></field>
     </record>
-
     <record id="view_cabochon_color_form" model="ir.ui.view">
-        <field name="name">cabochon.color.form</field>
-        <field name="model">cabochon.color</field>
-        <field name="arch" type="xml">
-            <form>
-                <sheet>
-                    <group>
-                        <field name="name"/>
-                        <field name="hex_code"/>
-                        <field name="description"/>
-                        <field name="active"/>
-                    </group>
-                </sheet>
-            </form>
-        </field>
+        <field name="name">cabochon.color.form</field><field name="model">cabochon.color</field>
+        <field name="arch" type="xml"><form><sheet><group><field name="name"/><field name="hex_code"/><field name="description"/><field name="active"/></group></sheet></form></field>
     </record>
-
     <record id="action_cabochon_color" model="ir.actions.act_window">
-        <field name="name">Цвет</field>
-        <field name="res_model">cabochon.color</field>
-        <field name="view_mode">list,form</field>
-    </record>
-
-    <record id="view_cabochon_drilled_option_tree" model="ir.ui.view">
-        <field name="name">cabochon.drilled.option.list</field>
-        <field name="model">cabochon.drilled.option</field>
-        <field name="arch" type="xml">
-            <list>
-                <field name="name"/>
-                <field name="description"/>
-                <field name="active"/>
-            </list>
-        </field>
-    </record>
-
-    <record id="view_cabochon_drilled_option_form" model="ir.ui.view">
-        <field name="name">cabochon.drilled.option.form</field>
-        <field name="model">cabochon.drilled.option</field>
-        <field name="arch" type="xml">
-            <form>
-                <sheet>
-                    <group>
-                        <field name="name"/>
-                        <field name="description"/>
-                        <field name="active"/>
-                    </group>
-                </sheet>
-            </form>
-        </field>
-    </record>
-
-    <record id="action_cabochon_drilled_option" model="ir.actions.act_window">
-        <field name="name">Просверлен</field>
-        <field name="res_model">cabochon.drilled.option</field>
-        <field name="view_mode">list,form</field>
-    </record>
-
-    <record id="view_cabochon_extra_option_tree" model="ir.ui.view">
-        <field name="name">cabochon.extra.option.list</field>
-        <field name="model">cabochon.extra.option</field>
-        <field name="arch" type="xml">
-            <list>
-                <field name="name"/>
-                <field name="description"/>
-                <field name="active"/>
-            </list>
-        </field>
-    </record>
-
-    <record id="view_cabochon_extra_option_form" model="ir.ui.view">
-        <field name="name">cabochon.extra.option.form</field>
-        <field name="model">cabochon.extra.option</field>
-        <field name="arch" type="xml">
-            <form>
-                <sheet>
-                    <group>
-                        <field name="name"/>
-                        <field name="description"/>
-                        <field name="active"/>
-                    </group>
-                </sheet>
-            </form>
-        </field>
-    </record>
-
-    <record id="action_cabochon_extra_option" model="ir.actions.act_window">
-        <field name="name">Дополнительно</field>
-        <field name="res_model">cabochon.extra.option</field>
-        <field name="view_mode">list,form</field>
+        <field name="name">Цвет</field><field name="res_model">cabochon.color</field><field name="view_mode">list,form</field>
     </record>
 
     <record id="view_cabochon_size_tree" model="ir.ui.view">
-        <field name="name">cabochon.size.list</field>
-        <field name="model">cabochon.size</field>
-        <field name="arch" type="xml">
-            <list>
-                <field name="name"/>
-                <field name="size"/>
-                <field name="description"/>
-                <field name="active"/>
-            </list>
-        </field>
+        <field name="name">cabochon.size.list</field><field name="model">cabochon.size</field>
+        <field name="arch" type="xml"><list><field name="name"/><field name="size"/><field name="description"/><field name="active"/></list></field>
     </record>
-
     <record id="view_cabochon_size_form" model="ir.ui.view">
-        <field name="name">cabochon.size.form</field>
-        <field name="model">cabochon.size</field>
-        <field name="arch" type="xml">
-            <form>
-                <sheet>
-                    <group>
-                        <field name="name"/>
-                        <field name="size"/>
-                        <field name="description"/>
-                        <field name="active"/>
-                    </group>
-                </sheet>
-            </form>
-        </field>
+        <field name="name">cabochon.size.form</field><field name="model">cabochon.size</field>
+        <field name="arch" type="xml"><form><sheet><group><field name="name"/><field name="size"/><field name="description"/><field name="active"/></group></sheet></form></field>
     </record>
-
     <record id="action_cabochon_size" model="ir.actions.act_window">
-        <field name="name">Размер</field>
-        <field name="res_model">cabochon.size</field>
-        <field name="view_mode">list,form</field>
+        <field name="name">Размер</field><field name="res_model">cabochon.size</field><field name="view_mode">list,form</field>
     </record>
 
-    <record id="view_cabochon_defect_type_tree" model="ir.ui.view">
-        <field name="name">cabochon.defect.type.list</field>
-        <field name="model">cabochon.defect.type</field>
-        <field name="arch" type="xml">
-            <list>
-                <field name="name"/>
-                <field name="is_employee_caused"/>
-                <field name="is_returnable"/>
-                <field name="default_action"/>
-                <field name="active"/>
-            </list>
-        </field>
-    </record>
-
-    <record id="view_cabochon_defect_type_form" model="ir.ui.view">
-        <field name="name">cabochon.defect.type.form</field>
-        <field name="model">cabochon.defect.type</field>
-        <field name="arch" type="xml">
-            <form>
-                <sheet>
-                    <group>
-                        <field name="name"/>
-                        <field name="description"/>
-                        <field name="is_employee_caused"/>
-                        <field name="is_returnable"/>
-                        <field name="default_action"/>
-                        <field name="active"/>
-                    </group>
-                </sheet>
-            </form>
-        </field>
-    </record>
-
-    <record id="action_cabochon_defect_type" model="ir.actions.act_window">
-        <field name="name">Тип брака</field>
-        <field name="res_model">cabochon.defect.type</field>
-        <field name="view_mode">list,form</field>
-    </record>
-
-    <menuitem id="menu_cabochon_stone_type" name="Тип сырья" parent="menu_cabochon_references" action="action_cabochon_stone_type" sequence="20"/>
-    <menuitem id="menu_cabochon_form_type" name="Тип формы" parent="menu_cabochon_references" action="action_cabochon_form_type" sequence="25"/>
-    <menuitem id="menu_cabochon_shape" name="Форма" parent="menu_cabochon_references" action="action_cabochon_shape" sequence="30"/>
-    <menuitem id="menu_cabochon_color" name="Цвет" parent="menu_cabochon_references" action="action_cabochon_color" sequence="40"/>
-    <menuitem id="menu_cabochon_extra_option" name="Дополнительно" parent="menu_cabochon_references" action="action_cabochon_extra_option" sequence="46"/>
-    <menuitem id="menu_cabochon_size" name="Размер" parent="menu_cabochon_references" action="action_cabochon_size" sequence="50"/>
-    <menuitem id="menu_cabochon_defect_type" name="Тип брака" parent="menu_cabochon_references" action="action_cabochon_defect_type" sequence="60"/>
-    <record id="menu_cabochon_stone_type" model="ir.ui.menu">
-        <field name="active">0</field>
-        <field name="group_ids" eval="[(6, 0, [ref('cabochon_base.group_cabochon_manager'), ref('cabochon_base.group_cabochon_workshop_manager'), ref('cabochon_base.group_cabochon_admin')])]"/>
-    </record>
-
-    <record id="menu_cabochon_form_type" model="ir.ui.menu">
-        <field name="group_ids" eval="[(6, 0, [ref('cabochon_base.group_cabochon_workshop_manager'), ref('cabochon_base.group_cabochon_admin')])]"/>
-    </record>
-
-    <record id="menu_cabochon_shape" model="ir.ui.menu">
-        <field name="group_ids" eval="[(6, 0, [ref('cabochon_base.group_cabochon_workshop_manager'), ref('cabochon_base.group_cabochon_admin')])]"/>
-    </record>
-
-    <record id="menu_cabochon_color" model="ir.ui.menu">
-        <field name="group_ids" eval="[(6, 0, [ref('cabochon_base.group_cabochon_workshop_manager'), ref('cabochon_base.group_cabochon_admin')])]"/>
-    </record>
-
-    <record id="menu_cabochon_drilled_option" model="ir.ui.menu">
-        <field name="group_ids" eval="[(6, 0, [ref('cabochon_base.group_cabochon_admin')])]"/>
-        <field name="active">0</field>
-    </record>
-
-    <record id="menu_cabochon_extra_option" model="ir.ui.menu">
-        <field name="active">0</field>
-        <field name="group_ids" eval="[(6, 0, [ref('cabochon_base.group_cabochon_workshop_manager'), ref('cabochon_base.group_cabochon_admin')])]"/>
-    </record>
-
-    <record id="menu_cabochon_size" model="ir.ui.menu">
-        <field name="group_ids" eval="[(6, 0, [ref('cabochon_base.group_cabochon_workshop_manager'), ref('cabochon_base.group_cabochon_admin')])]"/>
-    </record>
-
-    <record id="menu_cabochon_defect_type" model="ir.ui.menu">
-        <field name="active">0</field>
-        <field name="group_ids" eval="[(6, 0, [ref('cabochon_base.group_cabochon_workshop_manager'), ref('cabochon_base.group_cabochon_admin')])]"/>
-    </record>
+    <menuitem id="menu_cabochon_form_type" name="Тип формы" parent="menu_cabochon_references" action="action_cabochon_form_type" sequence="25" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
+    <menuitem id="menu_cabochon_shape" name="Форма" parent="menu_cabochon_references" action="action_cabochon_shape" sequence="30" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
+    <menuitem id="menu_cabochon_color" name="Цвет" parent="menu_cabochon_references" action="action_cabochon_color" sequence="40" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
+    <menuitem id="menu_cabochon_size" name="Размер" parent="menu_cabochon_references" action="action_cabochon_size" sequence="50" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
 </odoo>
