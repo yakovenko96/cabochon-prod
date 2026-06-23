@@ -237,6 +237,8 @@
                 <field name="completed_operation_ids" widget="many2many_tags" width="300px"/>
                 <field name="color_id" width="140px"/>
                 <field name="stone_size_id" width="140px"/>
+                <field name="shape_id" width="150px"/>
+                <field name="form_type_id" width="180px"/>
                 <field name="state"/>
             </list>
         </field>
@@ -270,6 +272,7 @@
                         <group string="Текущий учет">
                             <field name="barcode"/>
                             <field name="parent_id"/>
+                            <field name="source_lot_ids" widget="many2many_tags"/>
                             <field name="location_id"/>
                             <field name="owner_employee_id"/>
                             <field name="completed_operation_ids" widget="many2many_tags"/>
@@ -457,6 +460,7 @@
                         <group>
                             <field name="source_lot_id" domain="[('id', 'in', eligible_lot_ids)]" readonly="state != 'draft'"/>
                             <field name="planned_weight_g" readonly="state != 'draft'"/>
+                            <field name="total_planned_weight_g" readonly="1"/>
                             <field name="issued_weight_g"/>
                             <field name="received_weight_g"/>
                             <field name="defect_weight_g"/>
@@ -473,6 +477,14 @@
                         <field name="actual_duration_hours"/>
                     </group>
                     <notebook>
+                        <page string="Дополнительные мешки">
+                            <field name="additional_source_line_ids" readonly="state != 'draft'">
+                                <list editable="bottom">
+                                    <field name="lot_id" domain="[('id', 'in', parent.eligible_lot_ids)]"/>
+                                    <field name="weight_g"/>
+                                </list>
+                            </field>
+                        </page>
                         <page string="Маршрут операций">
                             <field name="operation_line_ids" readonly="1">
                                 <list>
@@ -714,6 +726,8 @@
                             <field name="show_shape_fields" invisible="1"/>
                             <field name="can_worker_confirm" invisible="1"/>
                             <field name="transfer_date" readonly="state != 'draft'"/>
+                            <field name="manager_confirmed_by_id" invisible="state == 'draft'"/>
+                            <field name="worker_confirmed_by_id" invisible="state != 'confirmed'"/>
                             <field name="total_weight_g"/>
                             <field name="total_defect_weight_g"/>
                             <field name="total_detected_defect_weight_g"/>
@@ -919,13 +933,14 @@
                 <field name="detected_defect_weight_g" sum="Выявленный брак"/>
                 <field name="made_defect_weight_g" sum="Сделанный брак"/>
                 <field name="lost_weight_g" sum="Потери"/>
-                <field name="processed_weight_g" sum="Обработано"/>
                 <field name="defect_percent"/>
                 <field name="loss_percent"/>
                 <field name="total_loss_percent"/>
                 <field name="expected_loss_percent"/>
                 <field name="loss_over_norm_percent"/>
-                <field name="movement_count" sum="Движений"/>
+                <field name="avg_total_loss_percent"/>
+                <field name="min_total_loss_percent"/>
+                <field name="max_total_loss_percent"/>
             </list>
         </field>
     </record>
@@ -968,6 +983,9 @@
                 <field name="detected_defect_weight_g" type="measure"/>
                 <field name="made_defect_weight_g" type="measure"/>
                 <field name="lost_weight_g" type="measure"/>
+                <field name="avg_total_loss_percent" type="measure"/>
+                <field name="min_total_loss_percent" type="measure"/>
+                <field name="max_total_loss_percent" type="measure"/>
             </pivot>
         </field>
     </record>
@@ -1026,6 +1044,7 @@
         <field name="arch" type="xml">
             <list>
                 <field name="worker_id"/>
+                <field name="report_date"/>
                 <field name="active_request_count" sum="Активные заявки"/>
                 <field name="total_request_count" sum="Всего заявок"/>
                 <field name="planned_weight_g" sum="Плановый вес"/>
@@ -1046,9 +1065,12 @@
         <field name="arch" type="xml">
             <search>
                 <field name="worker_id"/>
+                <field name="report_date"/>
+                <filter name="today" string="Сегодня" domain="[('report_date', '=', context_today().strftime('%Y-%m-%d'))]"/>
                 <filter name="has_active" string="Есть активные заявки" domain="[('active_request_count','>',0)]"/>
                 <group>
                     <filter name="group_worker" string="Работник" context="{'group_by': 'worker_id'}"/>
+                    <filter name="group_report_date" string="Дата" context="{'group_by': 'report_date'}"/>
                 </group>
             </search>
         </field>
@@ -1060,6 +1082,7 @@
         <field name="arch" type="xml">
             <pivot string="Панель технолога">
                 <field name="worker_id" type="row"/>
+                <field name="report_date" interval="day" type="col"/>
                 <field name="active_request_count" type="measure"/>
                 <field name="planned_weight_g" type="measure"/>
                 <field name="received_weight_g" type="measure"/>
@@ -1085,6 +1108,7 @@
         <field name="name">Панель технолога</field>
         <field name="res_model">cabochon.worker.load.report</field>
         <field name="view_mode">list,pivot,graph</field>
+        <field name="context">{'search_default_today': 1}</field>
         <field name="search_view_id" ref="view_cabochon_worker_load_report_search"/>
     </record>
 </odoo>

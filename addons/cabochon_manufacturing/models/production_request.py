@@ -53,6 +53,15 @@ class CabochonProductionRequest(models.Model):
         ondelete="restrict",
         tracking=True,
     )
+    additional_source_line_ids = fields.One2many(
+        "cabochon.production.request.source.line",
+        "request_id",
+        string="Дополнительные исходные мешки",
+        copy=True,
+    )
+    total_planned_weight_g = fields.Float(
+        string="Общий плановый вес, г", compute="_compute_total_planned_weight", store=True
+    )
     planned_weight_g = fields.Float(string="Плановый вес к выдаче, г", digits=(16, 4), required=True)
     deadline = fields.Datetime(string="Срок выполнения", required=True, tracking=True)
     priority = fields.Selection(
@@ -133,6 +142,13 @@ class CabochonProductionRequest(models.Model):
         index=True,
     )
 
+    @api.depends("planned_weight_g", "additional_source_line_ids.weight_g")
+    def _compute_total_planned_weight(self):
+        for request in self:
+            request.total_planned_weight_g = request.planned_weight_g + sum(
+                request.additional_source_line_ids.mapped("weight_g")
+            )
+
     @api.model_create_multi
     def create(self, vals_list):
         sequence = self.env["ir.sequence"]
@@ -156,6 +172,7 @@ class CabochonProductionRequest(models.Model):
             "sort_type",
             "receipt_destination_stage",
             "source_lot_id",
+            "additional_source_line_ids",
             "planned_weight_g",
             "deadline",
             "priority",
@@ -186,6 +203,15 @@ class CabochonProductionRequest(models.Model):
         if existing:
             raise ValidationError(
                 f"Мешок {existing.source_lot_id.display_name} уже используется в заявке {existing.display_name}."
+            )
+        line_domain = [("lot_id", "in", source_lot_ids), ("request_id.state", "!=", "cancelled")]
+        if exclude_request_ids:
+            line_domain.append(("request_id", "not in", exclude_request_ids))
+        existing_line = self.env["cabochon.production.request.source.line"].sudo().search(line_domain, limit=1)
+        if existing_line:
+            raise ValidationError(
+                f"Мешок {existing_line.lot_id.display_name} уже используется в заявке "
+                f"{existing_line.request_id.display_name}."
             )
 
     @api.depends("deadline", "state")
@@ -299,6 +325,12 @@ class CabochonProductionRequest(models.Model):
                 ],
                 ["source_lot_id"],
             ).mapped("source_lot_id").ids
+            used_lot_ids += self.env["cabochon.production.request.source.line"].sudo().search(
+                [
+                    ("request_id", "!=", request.id or 0),
+                    ("request_id.state", "!=", "cancelled"),
+                ]
+            ).mapped("lot_id").ids
             lot_domain = [
                 ("state", "=", "available"),
                 ("is_defect_lot", "=", False),
@@ -382,7 +414,9 @@ class CabochonProductionRequest(models.Model):
             if not request.operation_ids.filtered("final_operation"):
                 request.receipt_destination_stage = "semi_finished"
 
-    @api.constrains("worker_id", "operation_ids", "source_lot_id", "planned_weight_g")
+    @api.constrains(
+        "worker_id", "operation_ids", "source_lot_id", "planned_weight_g", "additional_source_line_ids"
+    )
     def _check_request_values(self):
         for request in self:
             if float_compare(request.planned_weight_g, 0.0, precision_digits=4) <= 0:
@@ -397,6 +431,16 @@ class CabochonProductionRequest(models.Model):
                 precision_digits=4,
             ) > 0:
                 raise ValidationError("Плановый вес не может превышать текущий остаток исходного мешка.")
+            all_source_lots = request.source_lot_id | request.additional_source_line_ids.mapped("lot_id")
+            if len(all_source_lots) != 1 + len(request.additional_source_line_ids):
+                raise ValidationError("Один мешок нельзя добавить в заявку дважды.")
+            if request.additional_source_line_ids and "press" not in request.operation_ids.mapped("code"):
+                raise ValidationError("Несколько исходных мешков разрешены только для операции пресса.")
+            route_error_lots = all_source_lots.filtered(
+                lambda lot, operations=request.operation_ids: not lot._is_operation_route_allowed(operations)
+            )
+            if route_error_lots:
+                raise ValidationError("Выбранный маршрут недоступен для одного из исходных мешков.")
             allowed_ids = set(request.worker_id.sudo().cabochon_allowed_operation_ids.ids)
             if request.operation_ids and not set(request.operation_ids.ids).issubset(allowed_ids):
                 raise ValidationError("Работник не допущен ко всем операциям заявки.")
@@ -637,12 +681,17 @@ class CabochonProductionRequest(models.Model):
                             "weight_g": self.planned_weight_g,
                         },
                     )
+                ]
+                + [
+                    (0, 0, {"lot_id": line.lot_id.id, "weight_g": line.weight_g})
+                    for line in self.additional_source_line_ids
                 ],
                 "company_id": self.company_id.id,
             }
         )
         self.issue_id = issue
         return issue
+
 
     def _ensure_receipt_transfer(self, issue_lines=None):
         self.ensure_one()
@@ -695,6 +744,35 @@ class CabochonProductionRequest(models.Model):
             for lot, weight in (issue_lines or [])
             if lot
         ]
+
+
+class CabochonProductionRequestSourceLine(models.Model):
+    _name = "cabochon.production.request.source.line"
+    _description = "Дополнительный исходный мешок заявки"
+    _order = "id"
+
+    request_id = fields.Many2one(
+        "cabochon.production.request", string="Заявка", required=True, ondelete="cascade"
+    )
+    lot_id = fields.Many2one("cabochon.stone.lot", string="Исходный мешок", required=True, ondelete="restrict")
+    weight_g = fields.Float(string="Плановый вес, г", required=True, digits=(16, 4))
+
+    @api.constrains("lot_id", "weight_g", "request_id")
+    def _check_values(self):
+        for line in self:
+            if float_compare(line.weight_g, 0.0, precision_digits=4) <= 0:
+                raise ValidationError("Плановый вес дополнительного мешка должен быть больше нуля.")
+            if float_compare(line.weight_g, line.lot_id.current_weight_g, precision_digits=4) > 0:
+                raise ValidationError("Плановый вес не может превышать остаток дополнительного мешка.")
+            if line.lot_id == line.request_id.source_lot_id:
+                raise ValidationError("Основной мешок нельзя повторять в дополнительных строках.")
+            line.request_id._check_source_lots_available(
+                [line.lot_id.id], exclude_request_ids=line.request_id.ids
+            )
+
+    _request_lot_unique = models.Constraint(
+        "UNIQUE(request_id, lot_id)", "Один дополнительный мешок нельзя добавить в заявку дважды."
+    )
 
 
 class CabochonProductionRequestOperationLine(models.Model):

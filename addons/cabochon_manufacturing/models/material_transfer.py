@@ -57,6 +57,12 @@ class CabochonMaterialTransfer(models.Model):
         tracking=True,
     )
     state_order = fields.Integer(string="Порядок статуса", compute="_compute_state_order", store=True)
+    manager_confirmed_by_id = fields.Many2one(
+        "res.users", string="Подтвердил со стороны склада", readonly=True, copy=False
+    )
+    worker_confirmed_by_id = fields.Many2one(
+        "res.users", string="Подтвердил со стороны работника", readonly=True, copy=False
+    )
     line_ids = fields.One2many("cabochon.material.transfer.line", "transfer_id", string="Строки")
     total_weight_g = fields.Float(string="Фактический вес, г", compute="_compute_totals", store=True)
     total_defect_weight_g = fields.Float(string="Брак, г", compute="_compute_totals", store=True)
@@ -134,7 +140,8 @@ class CabochonMaterialTransfer(models.Model):
             transfer.can_worker_confirm = bool(is_admin or transfer.worker_id.user_id == self.env.user)
 
     def write(self, vals):
-        if set(vals) - {"state"} and any(record.state != "draft" for record in self):
+        internal_fields = {"state", "manager_confirmed_by_id", "worker_confirmed_by_id"}
+        if set(vals) - internal_fields and any(record.state != "draft" for record in self):
             raise UserError("Выдачу/сдачу после подтверждения менеджером нельзя менять.")
         result = super().write(vals)
         if {"manager_id", "state", "transfer_type", "request_id"}.intersection(vals):
@@ -167,7 +174,9 @@ class CabochonMaterialTransfer(models.Model):
             if transfer.state != "draft":
                 continue
             transfer._validate_before_manager_confirm()
-            transfer.state = "manager_confirmed"
+            transfer.with_context(cabochon_transfer_internal_update=True).write(
+                {"state": "manager_confirmed", "manager_confirmed_by_id": self.env.user.id}
+            )
             transfer._clear_manager_activities()
             transfer._notify_worker_activity()
 
@@ -192,7 +201,9 @@ class CabochonMaterialTransfer(models.Model):
                 transfer._confirm_issue()
             else:
                 transfer._confirm_receipt()
-            transfer.state = "confirmed"
+            transfer.with_context(cabochon_transfer_internal_update=True).write(
+                {"state": "confirmed", "worker_confirmed_by_id": self.env.user.id}
+            )
             transfer._clear_worker_activities()
 
     def _lock_for_update(self):
@@ -887,6 +898,12 @@ class CabochonMaterialTransferLine(models.Model):
         values = {
             "name": self._next_received_lot_name(source_lot),
             "parent_id": source_lot.id if source_lot else False,
+            "source_lot_ids": [
+                (6, 0, self.transfer_id.request_id.issue_id.line_ids.mapped("new_lot_id").ids)
+            ]
+            if self.transfer_id.request_id
+            and len(self.transfer_id.request_id.issue_id.line_ids) > 1
+            else False,
             "supplier_id": source_lot.supplier_id.id if source_lot else False,
             "fraction": source_lot.fraction if source_lot else False,
             "fraction_id": source_lot.fraction_id.id if source_lot and source_lot.fraction_id else False,

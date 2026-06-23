@@ -14,6 +14,15 @@ class CabochonStoneLot(models.Model):
     name = fields.Char(string="ID мешка", default="Новый", required=True, copy=False, tracking=True)
     barcode = fields.Char(string="Штрихкод/QR", copy=False, readonly=True, index=True)
     parent_id = fields.Many2one("cabochon.stone.lot", string="Исходный мешок", ondelete="restrict")
+    source_lot_ids = fields.Many2many(
+        "cabochon.stone.lot",
+        "cabochon_stone_lot_mixed_source_rel",
+        "result_lot_id",
+        "source_lot_id",
+        string="Смешанные исходные мешки",
+        readonly=True,
+        copy=False,
+    )
     child_ids = fields.One2many("cabochon.stone.lot", "parent_id", string="Полученные мешки")
     transfer_line_ids = fields.One2many("cabochon.material.transfer.line", "lot_id", string="Строки документов")
     new_lot_transfer_line_ids = fields.One2many(
@@ -337,22 +346,24 @@ class CabochonStoneLot(models.Model):
     def _lineage_lot_ids(self):
         self.ensure_one()
         lots = self
-        current = self
-        while current.parent_id and current.parent_id not in lots:
-            current = current.parent_id
-            lots |= current
+        frontier = self
+        while frontier:
+            sources = frontier.mapped("parent_id") | frontier.mapped("source_lot_ids")
+            sources -= lots
+            if not sources:
+                break
+            lots |= sources
+            frontier = sources
         return lots.ids
 
     def _route_lot_ids(self):
         self.ensure_one()
-        lots = self
-        current = self
-        while current.parent_id and current.parent_id not in lots:
-            current = current.parent_id
-            lots |= current
+        lots = self.browse(self._lineage_lot_ids())
         frontier = lots
         while frontier:
-            children = self.search([("parent_id", "in", frontier.ids)])
+            children = self.search(
+                ["|", ("parent_id", "in", frontier.ids), ("source_lot_ids", "in", frontier.ids)]
+            )
             children -= lots
             if not children:
                 break

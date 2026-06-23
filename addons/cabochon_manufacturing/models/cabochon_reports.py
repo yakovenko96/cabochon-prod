@@ -9,6 +9,7 @@ class CabochonWorkerLoadReport(models.Model):
 
     worker_id = fields.Many2one("hr.employee", string="Работник", readonly=True)
     company_id = fields.Many2one("res.company", string="Компания", readonly=True)
+    report_date = fields.Date(string="Дата", readonly=True)
     active_request_count = fields.Integer(string="Активные заявки", readonly=True)
     total_request_count = fields.Integer(string="Всего заявок", readonly=True)
     planned_weight_g = fields.Float(string="Плановый вес, г", readonly=True)
@@ -29,6 +30,7 @@ class CabochonWorkerLoadReport(models.Model):
                     MIN(request.id) AS id,
                     request.worker_id AS worker_id,
                     request.company_id AS company_id,
+                    request.create_date::date AS report_date,
                     SUM(
                         CASE
                             WHEN request.state IN ('confirmed', 'in_progress', 'partially_done')
@@ -46,7 +48,7 @@ class CabochonWorkerLoadReport(models.Model):
                     MAX(request.write_date) AS last_activity_at
                 FROM cabochon_production_request request
                 WHERE request.worker_id IS NOT NULL
-                GROUP BY request.worker_id, request.company_id
+                GROUP BY request.worker_id, request.company_id, request.create_date::date
             )
             """
         )
@@ -68,12 +70,14 @@ class CabochonWorkerOperationQualityReport(models.Model):
     detected_defect_weight_g = fields.Float(string="Выявленный брак, г", readonly=True)
     made_defect_weight_g = fields.Float(string="Сделанный брак, г", readonly=True)
     lost_weight_g = fields.Float(string="Потери, г", readonly=True)
-    processed_weight_g = fields.Float(string="Обработано, г", readonly=True)
     defect_percent = fields.Float(string="Брак, %", readonly=True, aggregator=False)
     loss_percent = fields.Float(string="Потери, %", readonly=True, aggregator=False)
     total_loss_percent = fields.Float(string="Брак + потери, %", readonly=True, aggregator=False)
     expected_loss_percent = fields.Float(string="Норма потерь, %", readonly=True, aggregator=False)
     loss_over_norm_percent = fields.Float(string="Потери сверх нормы, %", readonly=True, aggregator=False)
+    avg_total_loss_percent = fields.Float(string="Средний брак + потери, %", readonly=True, aggregator="avg")
+    min_total_loss_percent = fields.Float(string="Минимальный брак + потери, %", readonly=True, aggregator="min")
+    max_total_loss_percent = fields.Float(string="Максимальный брак + потери, %", readonly=True, aggregator="max")
 
     def init(self):
         tools.drop_view_if_exists(self.env.cr, self._table)
@@ -93,7 +97,6 @@ class CabochonWorkerOperationQualityReport(models.Model):
                         COALESCE(SUM(CASE WHEN movement.kind = 'defect' AND movement.defect_kind = 'detected' THEN movement.weight_g ELSE 0 END), 0.0) AS detected_defect_weight_g,
                         COALESCE(SUM(CASE WHEN movement.kind = 'defect' AND movement.defect_kind = 'made' THEN movement.weight_g ELSE 0 END), 0.0) AS made_defect_weight_g,
                         COALESCE(SUM(CASE WHEN movement.kind = 'loss' THEN movement.weight_g ELSE 0 END), 0.0) AS lost_weight_g,
-                        COALESCE(SUM(CASE WHEN movement.kind IN ('receipt', 'defect', 'loss') THEN movement.weight_g ELSE 0 END), 0.0) AS processed_weight_g,
                         COALESCE(MAX(operation.expected_loss_percent), 0.0) AS expected_loss_percent
                     FROM cabochon_manufacturing_movement movement
                     LEFT JOIN cabochon_manufacturing_operation operation ON operation.id = movement.primary_operation_id
@@ -114,7 +117,6 @@ class CabochonWorkerOperationQualityReport(models.Model):
                     detected_defect_weight_g,
                     made_defect_weight_g,
                     lost_weight_g,
-                    processed_weight_g,
                     CASE WHEN issued_weight_g > 0 THEN defect_weight_g / issued_weight_g * 100.0 ELSE 0.0 END AS defect_percent,
                     CASE WHEN issued_weight_g > 0 THEN lost_weight_g / issued_weight_g * 100.0 ELSE 0.0 END AS loss_percent,
                     CASE WHEN issued_weight_g > 0 THEN (defect_weight_g + lost_weight_g) / issued_weight_g * 100.0 ELSE 0.0 END AS total_loss_percent,
@@ -122,7 +124,10 @@ class CabochonWorkerOperationQualityReport(models.Model):
                     GREATEST(
                         CASE WHEN issued_weight_g > 0 THEN lost_weight_g / issued_weight_g * 100.0 ELSE 0.0 END - expected_loss_percent,
                         0.0
-                    ) AS loss_over_norm_percent
+                    ) AS loss_over_norm_percent,
+                    CASE WHEN issued_weight_g > 0 THEN (defect_weight_g + lost_weight_g) / issued_weight_g * 100.0 ELSE 0.0 END AS avg_total_loss_percent,
+                    CASE WHEN issued_weight_g > 0 THEN (defect_weight_g + lost_weight_g) / issued_weight_g * 100.0 ELSE 0.0 END AS min_total_loss_percent,
+                    CASE WHEN issued_weight_g > 0 THEN (defect_weight_g + lost_weight_g) / issued_weight_g * 100.0 ELSE 0.0 END AS max_total_loss_percent
                 FROM quality
             )
             """

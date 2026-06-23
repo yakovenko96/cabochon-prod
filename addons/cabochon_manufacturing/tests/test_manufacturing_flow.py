@@ -37,6 +37,8 @@ class TestCabochonManufacturingFlow(TransactionCase):
         ).manager_id = cls.manager
         cls.wash_operation = cls.env.ref("cabochon_manufacturing.operation_tumble_wash").sudo()
         cls.final_operation = cls.env.ref("cabochon_manufacturing.operation_grinding_polishing").sudo()
+        cls.sort_operation = cls.env.ref("cabochon_manufacturing.operation_manual_sorting").sudo()
+        cls.press_operation = cls.env.ref("cabochon_manufacturing.operation_press").sudo()
         cls.worker.cabochon_allowed_operation_ids = cls.wash_operation
 
     @classmethod
@@ -126,14 +128,73 @@ class TestCabochonManufacturingFlow(TransactionCase):
 
         issue.with_user(self.manager_user).action_manager_confirm()
         self.assertEqual(issue.state, "manager_confirmed")
+        self.assertEqual(issue.manager_confirmed_by_id, self.manager_user)
         with self.assertRaises(UserError):
             issue.line_ids.with_user(self.manager_user).write({"weight_g": 9.0})
 
         issue.with_user(self.worker_user).action_worker_confirm()
         self.assertEqual(issue.state, "confirmed")
+        self.assertEqual(issue.worker_confirmed_by_id, self.worker_user)
         self.assertEqual(request.state, "in_progress")
         self.assertEqual(lot.state, "issued")
         self.assertEqual(lot.current_weight_g, 10.0)
+
+    def test_admin_can_confirm_both_sides_and_is_recorded(self):
+        request = self._create_request(self._create_lot())
+        request.with_user(self.technologist_user).action_confirm()
+
+        request.issue_id.with_user(self.admin_user).action_manager_confirm()
+        request.issue_id.with_user(self.admin_user).action_worker_confirm()
+
+        self.assertEqual(request.issue_id.manager_confirmed_by_id, self.admin_user)
+        self.assertEqual(request.issue_id.worker_confirmed_by_id, self.admin_user)
+
+    def test_press_request_accepts_multiple_source_lots_and_tracks_mixed_origin(self):
+        lots = self._create_lot() | self._create_lot()
+        for lot in lots:
+            self.env["cabochon.manufacturing.movement"].sudo().create(
+                {
+                    "kind": "receipt",
+                    "new_lot_id": lot.id,
+                    "operation_ids": [Command.set((self.wash_operation | self.sort_operation).ids)],
+                    "destination_location_id": self.raw_location.id,
+                    "weight_g": lot.current_weight_g,
+                }
+            )
+        self.worker.with_user(self.admin_user).write(
+            {"cabochon_allowed_operation_ids": [Command.set(self.press_operation.ids)]}
+        )
+        request = self.env["cabochon.production.request"].with_user(self.technologist_user).create(
+            {
+                "technologist_id": self.technologist.id,
+                "worker_id": self.worker.id,
+                "operation_ids": [Command.set(self.press_operation.ids)],
+                "source_lot_id": lots[0].id,
+                "planned_weight_g": 10.0,
+                "additional_source_line_ids": [
+                    Command.create({"lot_id": lots[1].id, "weight_g": 15.0})
+                ],
+                "deadline": fields.Datetime.now() + timedelta(days=1),
+            }
+        )
+        request.with_user(self.technologist_user).action_confirm()
+        self.assertEqual(len(request.issue_id.line_ids), 2)
+
+        request.issue_id.with_user(self.admin_user).action_manager_confirm()
+        request.issue_id.with_user(self.admin_user).action_worker_confirm()
+        receipt = request.receipt_ids.filtered(lambda item: item.transfer_type == "receipt")[:1]
+        shape = self.env["cabochon.shape"].sudo().create({"name": "Тестовая форма"})
+        size = self.env["cabochon.size"].sudo().create({"name": "Тестовый размер"})
+        for line in receipt.line_ids:
+            line.with_user(self.admin_user).write(
+                {"weight_g": line.weight_before_g, "shape_id": shape.id, "stone_size_id": size.id}
+            )
+        receipt.with_user(self.admin_user).action_manager_confirm()
+        receipt.with_user(self.admin_user).action_worker_confirm()
+
+        mixed_sources = request.issue_id.line_ids.mapped("new_lot_id")
+        for result_lot in receipt.line_ids.mapped("new_lot_id"):
+            self.assertEqual(result_lot.source_lot_ids, mixed_sources)
 
     def test_defect_weight_accumulates_in_one_location_lot(self):
         transfer = self.env["cabochon.material.transfer"].sudo().create(
