@@ -4,6 +4,8 @@ from odoo.tools.float_utils import float_compare
 
 from .constants import EXTRACTION_MONTHS
 
+WEIGHT_DIGITS = (16, 1)
+
 
 class CabochonExternalReceiptWizard(models.TransientModel):
     _name = "cabochon.external.receipt.wizard"
@@ -28,7 +30,7 @@ class CabochonExternalReceiptWizard(models.TransientModel):
         ondelete="restrict",
     )
     extraction_month = fields.Selection(EXTRACTION_MONTHS, string="Месяц добычи")
-    initial_weight_g = fields.Float(string="Вес прихода, г", required=True, digits=(16, 4))
+    initial_weight_g = fields.Float(string="Вес прихода, г", required=True, digits=WEIGHT_DIGITS)
     note = fields.Text(string="Комментарий")
 
     @api.model

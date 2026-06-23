@@ -45,6 +45,7 @@
                                 <div t-if="lot.stone_size_id"><strong>Размер:</strong> <span t-field="lot.stone_size_id"/></div>
                                 <div t-if="lot.shape_id"><strong>Форма:</strong> <span t-field="lot.shape_id"/></div>
                                 <div t-if="lot.form_type_id"><strong>Тип формы:</strong> <span t-field="lot.form_type_id"/></div>
+                                <div t-if="lot.completed_operation_ids"><strong>Операции:</strong> <span t-esc="', '.join(lot.completed_operation_ids.mapped('display_name'))"/></div>
                             </div>
                         </div>
                         <div style="margin-top: 14px;">
@@ -295,7 +296,6 @@
                                     <field name="kind"/>
                                     <field name="request_id" width="160px"/>
                                     <field name="operation_ids" widget="many2many_tags" width="300px"/>
-                                    <field name="primary_operation_id" width="240px"/>
                                     <field name="lot_id" width="160px"/>
                                     <field name="new_lot_id" width="160px"/>
                                     <field name="weight_g"/>
@@ -721,11 +721,14 @@
                             <field name="primary_operation_id" readonly="1"/>
                             <field name="show_sort_fields" invisible="1"/>
                             <field name="show_press_fields" invisible="1"/>
+                            <field name="show_machine_fields" invisible="1"/>
                             <field name="show_color_fields" invisible="1"/>
                             <field name="show_size_fields" invisible="1"/>
                             <field name="show_shape_fields" invisible="1"/>
+                            <field name="show_form_type_fields" invisible="1"/>
                             <field name="can_worker_confirm" invisible="1"/>
                             <field name="transfer_date" readonly="state != 'draft'"/>
+                            <field name="weight_before_g" invisible="transfer_type == 'issue'" readonly="state != 'draft'"/>
                             <field name="manager_confirmed_by_id" invisible="state == 'draft'"/>
                             <field name="worker_confirmed_by_id" invisible="state != 'confirmed'"/>
                             <field name="total_weight_g"/>
@@ -739,7 +742,7 @@
                         <list editable="bottom" delete="1">
                             <field name="transfer_type" column_invisible="1"/>
                             <field name="lot_id" width="160px"/>
-                            <field name="weight_before_g"/>
+                            <field name="weight_before_g" column_invisible="1"/>
                             <field name="weight_g" string="Фактический вес, г"/>
                             <field name="detected_defect_weight_g"/>
                             <field name="made_defect_weight_g"/>
@@ -747,9 +750,12 @@
                             <field name="lost_weight_g" readonly="transfer_type != 'issue'" force_save="1"/>
                             <field name="sort_type" width="160px" column_invisible="not parent.show_sort_fields" required="parent.show_sort_fields"/>
                             <field name="color_id" width="140px" column_invisible="not parent.show_color_fields" required="parent.show_color_fields"/>
-                            <field name="stone_size_id" width="140px" column_invisible="not parent.show_size_fields" required="parent.show_size_fields"/>
-                            <field name="shape_id" width="150px" column_invisible="not parent.show_shape_fields" required="parent.show_shape_fields"/>
-                            <field name="form_type_id" width="180px" column_invisible="1"/>
+                            <field name="eligible_stone_size_ids" column_invisible="1"/>
+                            <field name="eligible_shape_ids" column_invisible="1"/>
+                            <field name="eligible_form_type_ids" column_invisible="1"/>
+                            <field name="stone_size_id" width="140px" column_invisible="not parent.show_size_fields" required="parent.show_size_fields" domain="[('id', 'in', eligible_stone_size_ids)]"/>
+                            <field name="shape_id" width="150px" column_invisible="not parent.show_shape_fields" required="parent.show_shape_fields" domain="[('id', 'in', eligible_shape_ids)]"/>
+                            <field name="form_type_id" width="180px" column_invisible="not parent.show_form_type_fields" required="parent.show_form_type_fields" domain="[('id', 'in', eligible_form_type_ids)]"/>
                             <field name="new_lot_id" readonly="1" width="160px" column_invisible="parent.state != 'confirmed'"/>
                         </list>
                     </field>
@@ -787,9 +793,7 @@
                 <field name="request_id" width="160px"/>
                 <field name="lot_id" width="160px"/>
                 <field name="new_lot_id" width="160px"/>
-                <field name="report_lot_id" width="160px"/>
                 <field name="operation_ids" widget="many2many_tags" width="300px"/>
-                <field name="primary_operation_id" width="240px"/>
                 <field name="worker_id" width="220px"/>
                 <field name="manager_id" width="220px"/>
                 <field name="report_lot_extraction_year"/>
@@ -813,20 +817,17 @@
             <search>
                 <field name="lot_id"/>
                 <field name="new_lot_id"/>
-                <field name="report_lot_id"/>
                 <field name="worker_id" width="220px"/>
                 <field name="operation_ids"/>
-                <field name="primary_operation_id"/>
                 <filter name="defect" string="Брак" domain="[('kind','=','defect')]"/>
                 <filter name="detected_defect" string="Выявленный брак" domain="[('kind','=','defect'),('defect_kind','=','detected')]"/>
                 <filter name="made_defect" string="Сделанный брак" domain="[('kind','=','defect'),('defect_kind','=','made')]"/>
                 <filter name="loss" string="Потери" domain="[('kind','=','loss')]"/>
                 <filter name="loss_over_norm" string="Потери выше нормы" domain="[('is_loss_over_norm','=',True)]"/>
                 <group>
-                    <filter name="group_operation" string="Операция" context="{'group_by': 'primary_operation_id'}"/>
+                    <filter name="group_operation" string="Операция" context="{'group_by': 'operation_ids'}"/>
                     <filter name="group_worker" string="Работник" context="{'group_by': 'worker_id'}"/>
                     <filter name="group_month" string="Месяц" context="{'group_by': 'movement_date:month'}"/>
-                    <filter name="group_lot" string="Мешок" context="{'group_by': 'report_lot_id'}"/>
                     <filter name="group_extraction_year" string="Год добычи" context="{'group_by': 'report_lot_extraction_year'}"/>
                     <filter name="group_extraction_month" string="Месяц добычи" context="{'group_by': 'report_lot_extraction_month'}"/>
                 </group>
@@ -855,12 +856,10 @@
                             <field name="request_id"/>
                             <field name="transfer_id"/>
                             <field name="operation_ids" widget="many2many_tags"/>
-                            <field name="primary_operation_id"/>
                         </group>
                         <group>
                             <field name="lot_id"/>
                             <field name="new_lot_id"/>
-                            <field name="report_lot_id"/>
                             <field name="report_lot_extraction_year"/>
                             <field name="report_lot_extraction_month"/>
                             <field name="source_location_id"/>
@@ -890,7 +889,7 @@
         <field name="model">cabochon.manufacturing.movement</field>
         <field name="arch" type="xml">
             <pivot string="Отчет по движениям">
-                <field name="primary_operation_id" type="row"/>
+                <field name="operation_ids" type="row"/>
                 <field name="worker_id" type="row"/>
                 <field name="defect_kind" type="row"/>
                 <field name="movement_date" interval="month" type="col"/>
@@ -906,7 +905,7 @@
         <field name="model">cabochon.manufacturing.movement</field>
         <field name="arch" type="xml">
             <graph string="Движения по операциям" type="bar">
-                <field name="primary_operation_id"/>
+                <field name="operation_ids"/>
                 <field name="weight_g" type="measure"/>
                 <field name="loss_over_norm_percent" type="measure"/>
             </graph>
@@ -926,7 +925,7 @@
         <field name="arch" type="xml">
             <list decoration-danger="loss_over_norm_percent &gt; 0">
                 <field name="worker_id"/>
-                <field name="operation_id"/>
+                <field name="operation_names"/>
                 <field name="issued_weight_g" sum="Выдано"/>
                 <field name="received_weight_g" sum="Сдано"/>
                 <field name="defect_weight_g" sum="Брак"/>
@@ -938,9 +937,12 @@
                 <field name="total_loss_percent"/>
                 <field name="expected_loss_percent"/>
                 <field name="loss_over_norm_percent"/>
-                <field name="avg_total_loss_percent"/>
-                <field name="min_total_loss_percent"/>
-                <field name="max_total_loss_percent"/>
+                <field name="avg_defect_percent"/>
+                <field name="avg_loss_percent"/>
+                <field name="min_defect_percent"/>
+                <field name="max_defect_percent"/>
+                <field name="min_loss_percent"/>
+                <field name="max_loss_percent"/>
             </list>
         </field>
     </record>
@@ -951,11 +953,11 @@
         <field name="arch" type="xml">
             <search>
                 <field name="worker_id"/>
-                <field name="operation_id"/>
+                <field name="operation_names"/>
                 <filter name="loss_over_norm" string="Потери выше нормы" domain="[('loss_over_norm_percent','&gt;',0)]"/>
                 <group>
                     <filter name="group_worker" string="Работник" context="{'group_by': 'worker_id'}"/>
-                    <filter name="group_operation" string="Завершающая операция" context="{'group_by': 'operation_id'}"/>
+                    <filter name="group_operation_names" string="Операции" context="{'group_by': 'operation_names'}"/>
                 </group>
             </search>
         </field>
@@ -966,7 +968,16 @@
         <field name="res_model">cabochon.worker.operation.quality.report</field>
         <field name="view_mode">list,pivot,graph</field>
         <field name="domain">[]</field>
-        <field name="context">{'search_default_group_worker': 1, 'search_default_group_operation': 1}</field>
+        <field name="context">{'search_default_group_worker': 1, 'search_default_group_operation_names': 1}</field>
+        <field name="search_view_id" ref="view_cabochon_worker_operation_quality_report_search"/>
+    </record>
+
+    <record id="action_cabochon_my_defect_report" model="ir.actions.act_window">
+        <field name="name">Мой брак и потери</field>
+        <field name="res_model">cabochon.worker.operation.quality.report</field>
+        <field name="view_mode">list,pivot,graph</field>
+        <field name="domain">[('worker_id.user_id', '=', uid)]</field>
+        <field name="context">{'search_default_group_operation_names': 1}</field>
         <field name="search_view_id" ref="view_cabochon_worker_operation_quality_report_search"/>
     </record>
 
@@ -976,16 +987,19 @@
         <field name="arch" type="xml">
             <pivot string="Качество по работникам и операциям">
                 <field name="worker_id" type="row"/>
-                <field name="operation_id" type="row"/>
+                <field name="operation_names" type="row"/>
                 <field name="issued_weight_g" type="measure"/>
                 <field name="received_weight_g" type="measure"/>
                 <field name="defect_weight_g" type="measure"/>
                 <field name="detected_defect_weight_g" type="measure"/>
                 <field name="made_defect_weight_g" type="measure"/>
                 <field name="lost_weight_g" type="measure"/>
-                <field name="avg_total_loss_percent" type="measure"/>
-                <field name="min_total_loss_percent" type="measure"/>
-                <field name="max_total_loss_percent" type="measure"/>
+                <field name="avg_defect_percent" type="measure"/>
+                <field name="avg_loss_percent" type="measure"/>
+                <field name="min_defect_percent" type="measure"/>
+                <field name="max_defect_percent" type="measure"/>
+                <field name="min_loss_percent" type="measure"/>
+                <field name="max_loss_percent" type="measure"/>
             </pivot>
         </field>
     </record>
@@ -995,7 +1009,7 @@
         <field name="model">cabochon.worker.operation.quality.report</field>
         <field name="arch" type="xml">
             <graph string="Качество по операциям" type="bar">
-                <field name="operation_id"/>
+                <field name="operation_names"/>
                 <field name="defect_weight_g" type="measure"/>
                 <field name="lost_weight_g" type="measure"/>
             </graph>
@@ -1065,7 +1079,8 @@
         <field name="arch" type="xml">
             <search>
                 <field name="worker_id"/>
-                <field name="report_date"/>
+                <field name="report_date" string="С даты" filter_domain="[('report_date','&gt;=',self)]"/>
+                <field name="report_date" string="По дату" filter_domain="[('report_date','&lt;=',self)]"/>
                 <filter name="today" string="Сегодня" domain="[('report_date', '=', context_today().strftime('%Y-%m-%d'))]"/>
                 <filter name="has_active" string="Есть активные заявки" domain="[('active_request_count','>',0)]"/>
                 <group>
@@ -1108,7 +1123,7 @@
         <field name="name">Панель технолога</field>
         <field name="res_model">cabochon.worker.load.report</field>
         <field name="view_mode">list,pivot,graph</field>
-        <field name="context">{'search_default_today': 1}</field>
+        <field name="context">{}</field>
         <field name="search_view_id" ref="view_cabochon_worker_load_report_search"/>
     </record>
 </odoo>

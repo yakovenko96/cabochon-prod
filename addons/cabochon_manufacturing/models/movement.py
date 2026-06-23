@@ -2,6 +2,8 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools.float_utils import float_compare, float_is_zero
 
+WEIGHT_DIGITS = (16, 1)
+
 
 class CabochonManufacturingMovement(models.Model):
     _name = "cabochon.manufacturing.movement"
@@ -44,6 +46,18 @@ class CabochonManufacturingMovement(models.Model):
         readonly=False,
         string="Операция для отчетов",
     )
+    operation_names = fields.Char(
+        string="Операции для отчета",
+        compute="_compute_operation_names",
+        store=True,
+        readonly=True,
+    )
+    operation_key = fields.Char(
+        string="Ключ операций",
+        compute="_compute_operation_names",
+        store=True,
+        readonly=True,
+    )
     report_lot_id = fields.Many2one(
         "cabochon.stone.lot",
         compute="_compute_report_lot_id",
@@ -65,7 +79,7 @@ class CabochonManufacturingMovement(models.Model):
     )
     source_weight_before_g = fields.Float(
         string="Исходный вес до операции, г",
-        digits=(16, 4),
+        digits=WEIGHT_DIGITS,
         readonly=True,
         aggregator=False,
     )
@@ -93,7 +107,7 @@ class CabochonManufacturingMovement(models.Model):
     destination_location_id = fields.Many2one("cabochon.manufacturing.location", string="Куда", ondelete="restrict")
     worker_id = fields.Many2one("hr.employee", string="Работник", ondelete="restrict")
     manager_id = fields.Many2one("hr.employee", string="Ответственный", ondelete="restrict")
-    weight_g = fields.Float(string="Вес, г", digits=(16, 4), required=True)
+    weight_g = fields.Float(string="Вес, г", digits=WEIGHT_DIGITS, required=True)
     movement_date = fields.Datetime(string="Дата движения", default=fields.Datetime.now, required=True)
     correction_of_id = fields.Many2one("cabochon.manufacturing.movement", string="Корректирует", ondelete="restrict")
     note = fields.Text(string="Комментарий")
@@ -119,6 +133,13 @@ class CabochonManufacturingMovement(models.Model):
     def _compute_primary_operation_id(self):
         for movement in self:
             movement.primary_operation_id = movement.operation_ids.sorted("sequence")[-1:] if movement.operation_ids else False
+
+    @api.depends("operation_ids", "operation_ids.name", "operation_ids.sequence")
+    def _compute_operation_names(self):
+        for movement in self:
+            operations = movement.operation_ids.sorted("sequence")
+            movement.operation_names = " + ".join(operations.mapped("display_name"))
+            movement.operation_key = "+".join(str(operation.id) for operation in operations)
 
     @api.depends("kind", "lot_id", "new_lot_id")
     def _compute_report_lot_id(self):
@@ -229,7 +250,7 @@ class CabochonMovementCorrectionWizard(models.TransientModel):
         related="lot_id.location_id",
         readonly=True,
     )
-    delta_weight_g = fields.Float(string="Изменение веса, г", digits=(16, 4))
+    delta_weight_g = fields.Float(string="Изменение веса, г", digits=WEIGHT_DIGITS)
     destination_location_id = fields.Many2one(
         "cabochon.manufacturing.location",
         string="Новый склад",

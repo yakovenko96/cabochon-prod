@@ -221,7 +221,7 @@ class TestCabochonManufacturingFlow(TransactionCase):
 
         self.assertEqual(first, second)
         self.assertEqual(second.name, "БРАК-С")
-        self.assertAlmostEqual(second.current_weight_g, before_weight + 2.0, places=4)
+        self.assertAlmostEqual(second.current_weight_g, before_weight + 2.1, places=1)
         self.assertEqual(
             self.env["cabochon.stone.lot"].sudo().search_count(
                 [
@@ -347,6 +347,80 @@ class TestCabochonManufacturingFlow(TransactionCase):
         self.assertEqual(action.domain, "[]")
         self.env["cabochon.worker.operation.quality.report"].sudo()._read_group(
             [],
-            groupby=["worker_id", "operation_id"],
+            groupby=["worker_id", "operation_names"],
             aggregates=["defect_weight_g:sum", "lost_weight_g:sum"],
         )
+
+    def test_quality_report_groups_double_operation(self):
+        self.worker.cabochon_allowed_operation_ids = self.wash_operation | self.sort_operation
+        lot = self._create_lot()
+        request = self.env["cabochon.production.request"].with_user(self.technologist_user).create(
+            {
+                "technologist_id": self.technologist.id,
+                "worker_id": self.worker.id,
+                "operation_ids": [Command.set((self.wash_operation | self.sort_operation).ids)],
+                "source_lot_id": lot.id,
+                "planned_weight_g": 10.0,
+                "deadline": fields.Datetime.now() + timedelta(days=1),
+            }
+        )
+        request.with_user(self.technologist_user).action_confirm()
+        request.issue_id.with_user(self.manager_user).action_manager_confirm()
+        request.issue_id.with_user(self.worker_user).action_worker_confirm()
+
+        quality_row = self.env["cabochon.worker.operation.quality.report"].sudo().search(
+            [
+                ("worker_id", "=", self.worker.id),
+                ("operation_names", "=", "Помывка в галтовке + Ручная сортировка"),
+                ("company_id", "=", request.company_id.id),
+            ],
+            limit=1,
+        )
+        self.assertEqual(quality_row.issued_weight_g, 10.0)
+
+    def test_quality_report_averages_are_grouped_inside_worker_and_operation(self):
+        requests = self._create_request(self._create_lot(), weight=100.0) | self._create_request(
+            self._create_lot(), weight=100.0
+        )
+        movement_values = [
+            (requests[0], "issue", False, 100.0),
+            (requests[0], "defect", "made", 10.0),
+            (requests[0], "loss", False, 5.0),
+            (requests[1], "issue", False, 100.0),
+            (requests[1], "defect", "made", 20.0),
+            (requests[1], "loss", False, 10.0),
+        ]
+        for request, kind, defect_kind, weight in movement_values:
+            self.env["cabochon.manufacturing.movement"].sudo().create(
+                {
+                    "kind": kind,
+                    "defect_kind": defect_kind,
+                    "request_id": request.id,
+                    "worker_id": self.worker.id,
+                    "operation_ids": [Command.set(self.wash_operation.ids)],
+                    "primary_operation_id": self.wash_operation.id,
+                    "weight_g": weight,
+                }
+            )
+
+        grouped = self.env["cabochon.worker.operation.quality.report"].sudo()._read_group(
+            [("worker_id", "=", self.worker.id), ("operation_names", "=", "Помывка в галтовке")],
+            groupby=["worker_id", "operation_names"],
+            aggregates=[
+                "avg_defect_percent:avg",
+                "avg_loss_percent:avg",
+                "min_defect_percent:min",
+                "max_defect_percent:max",
+                "min_loss_percent:min",
+                "max_loss_percent:max",
+            ],
+        )
+
+        self.assertEqual(len(grouped), 1)
+        _worker, _operation, avg_defect, avg_loss, min_defect, max_defect, min_loss, max_loss = grouped[0]
+        self.assertAlmostEqual(avg_defect, 15.0)
+        self.assertAlmostEqual(avg_loss, 7.5)
+        self.assertAlmostEqual(min_defect, 10.0)
+        self.assertAlmostEqual(max_defect, 20.0)
+        self.assertAlmostEqual(min_loss, 5.0)
+        self.assertAlmostEqual(max_loss, 10.0)

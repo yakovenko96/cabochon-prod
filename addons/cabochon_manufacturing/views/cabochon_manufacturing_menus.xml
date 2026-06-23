@@ -12,9 +12,10 @@
     <menuitem id="menu_cabochon_corrections" name="Корректировки" parent="menu_cabochon_manufacturing_work" action="action_cabochon_movement_correction_wizard" sequence="40" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
 
     <menuitem id="menu_cabochon_manufacturing_reports" name="Отчеты" parent="menu_cabochon_manufacturing_root" sequence="20"/>
-    <menuitem id="menu_cabochon_movement" name="Журнал движений" parent="menu_cabochon_manufacturing_reports" action="action_cabochon_movement" sequence="10"/>
+    <menuitem id="menu_cabochon_my_defect_report" name="Мой брак и потери" parent="menu_cabochon_manufacturing_reports" action="action_cabochon_my_defect_report" sequence="5" groups="cabochon_base.group_cabochon_user"/>
+    <menuitem id="menu_cabochon_movement" name="Журнал движений" parent="menu_cabochon_manufacturing_reports" action="action_cabochon_movement" sequence="10" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
     <menuitem id="menu_cabochon_defect_report" name="Брак и потери по сотрудникам и операциям" parent="menu_cabochon_manufacturing_reports" action="action_cabochon_defect_report" sequence="20" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
-    <menuitem id="menu_cabochon_operation_time" name="Отчет по времени операций" parent="menu_cabochon_manufacturing_reports" action="action_cabochon_request_operation_line" sequence="30"/>
+    <menuitem id="menu_cabochon_operation_time" name="Отчет по времени операций" parent="menu_cabochon_manufacturing_reports" action="action_cabochon_request_operation_line" sequence="30" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
 
     <menuitem id="menu_cabochon_manufacturing_config" name="Настройки" parent="menu_cabochon_manufacturing_root" sequence="90" groups="cabochon_base.group_cabochon_admin"/>
     <menuitem id="menu_cabochon_operation" name="Операции" parent="menu_cabochon_manufacturing_config" action="action_cabochon_operation" sequence="10"/>

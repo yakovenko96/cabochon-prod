@@ -4,6 +4,8 @@ from odoo.tools.float_utils import float_compare
 
 from .constants import EXCLUSIVE_OPERATION_GROUPS, SINGLE_REQUEST_OPERATION_GROUPS, SORT_OPERATION_TYPES
 
+WEIGHT_DIGITS = (16, 1)
+
 
 class CabochonProductionRequest(models.Model):
     _name = "cabochon.production.request"
@@ -60,9 +62,9 @@ class CabochonProductionRequest(models.Model):
         copy=True,
     )
     total_planned_weight_g = fields.Float(
-        string="Общий плановый вес, г", compute="_compute_total_planned_weight", store=True
+        string="Общий плановый вес, г", compute="_compute_total_planned_weight", store=True, digits=WEIGHT_DIGITS
     )
-    planned_weight_g = fields.Float(string="Плановый вес к выдаче, г", digits=(16, 4), required=True)
+    planned_weight_g = fields.Float(string="Плановый вес к выдаче, г", digits=WEIGHT_DIGITS, required=True)
     deadline = fields.Datetime(string="Срок выполнения", required=True, tracking=True)
     priority = fields.Selection(
         [("0", "Обычный"), ("1", "Срочно"), ("2", "Очень срочно")],
@@ -116,12 +118,16 @@ class CabochonProductionRequest(models.Model):
         string="Доступные мешки для операции",
     )
     worker_load = fields.Integer(string="Текущая нагрузка работника", related="worker_id.cabochon_active_request_count")
-    issued_weight_g = fields.Float(string="Выдано, г", compute="_compute_weights", store=True)
-    received_weight_g = fields.Float(string="Сдано, г", compute="_compute_weights", store=True)
-    defect_weight_g = fields.Float(string="Брак, г", compute="_compute_weights", store=True)
-    detected_defect_weight_g = fields.Float(string="Выявленный брак, г", compute="_compute_weights", store=True)
-    made_defect_weight_g = fields.Float(string="Сделанный брак, г", compute="_compute_weights", store=True)
-    lost_weight_g = fields.Float(string="Потери, г", compute="_compute_weights", store=True)
+    issued_weight_g = fields.Float(string="Выдано, г", compute="_compute_weights", store=True, digits=WEIGHT_DIGITS)
+    received_weight_g = fields.Float(string="Сдано, г", compute="_compute_weights", store=True, digits=WEIGHT_DIGITS)
+    defect_weight_g = fields.Float(string="Брак, г", compute="_compute_weights", store=True, digits=WEIGHT_DIGITS)
+    detected_defect_weight_g = fields.Float(
+        string="Выявленный брак, г", compute="_compute_weights", store=True, digits=WEIGHT_DIGITS
+    )
+    made_defect_weight_g = fields.Float(
+        string="Сделанный брак, г", compute="_compute_weights", store=True, digits=WEIGHT_DIGITS
+    )
+    lost_weight_g = fields.Float(string="Потери, г", compute="_compute_weights", store=True, digits=WEIGHT_DIGITS)
     confirmed_at = fields.Datetime(string="Подтверждена")
     issued_at = fields.Datetime(string="Выдана")
     started_at = fields.Datetime(string="Начата")
@@ -701,7 +707,12 @@ class CabochonProductionRequest(models.Model):
         if existing:
             receipt = existing[:1]
             if issue_lines and not receipt.line_ids:
-                receipt.sudo().write({"line_ids": self._receipt_line_commands(issue_lines)})
+                receipt.sudo().write(
+                    {
+                        "weight_before_g": self._receipt_weight_before(issue_lines),
+                        "line_ids": self._receipt_line_commands(issue_lines),
+                    }
+                )
             return receipt
         destination = self._get_receipt_destination_location()
         if not destination.manager_id:
@@ -713,6 +724,7 @@ class CabochonProductionRequest(models.Model):
                 "worker_id": self.worker_id.id,
                 "manager_id": destination.manager_id.id,
                 "operation_ids": [(6, 0, self.operation_ids.ids)],
+                "weight_before_g": self._receipt_weight_before(issue_lines),
                 "line_ids": self._receipt_line_commands(issue_lines),
                 "company_id": self.company_id.id,
             }
@@ -745,6 +757,12 @@ class CabochonProductionRequest(models.Model):
             if lot
         ]
 
+    def _receipt_weight_before(self, issue_lines):
+        weights = [weight for lot, weight in (issue_lines or []) if lot]
+        if weights:
+            return sum(weights)
+        return self.source_lot_id.current_weight_g or self.source_lot_id.initial_weight_g
+
 
 class CabochonProductionRequestSourceLine(models.Model):
     _name = "cabochon.production.request.source.line"
@@ -755,7 +773,7 @@ class CabochonProductionRequestSourceLine(models.Model):
         "cabochon.production.request", string="Заявка", required=True, ondelete="cascade"
     )
     lot_id = fields.Many2one("cabochon.stone.lot", string="Исходный мешок", required=True, ondelete="restrict")
-    weight_g = fields.Float(string="Плановый вес, г", required=True, digits=(16, 4))
+    weight_g = fields.Float(string="Плановый вес, г", required=True, digits=WEIGHT_DIGITS)
 
     @api.constrains("lot_id", "weight_g", "request_id")
     def _check_values(self):
@@ -807,6 +825,7 @@ class CabochonProductionRequestOperationLine(models.Model):
         string="Плановый вес, г",
         related="request_id.planned_weight_g",
         readonly=True,
+        digits=WEIGHT_DIGITS,
     )
     started_at = fields.Datetime(string="Начало")
     finished_at = fields.Datetime(string="Окончание")

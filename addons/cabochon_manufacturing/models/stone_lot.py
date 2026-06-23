@@ -4,6 +4,8 @@ from odoo.tools.float_utils import float_compare
 
 from .constants import EXTRACTION_MONTHS
 
+WEIGHT_DIGITS = (16, 1)
+
 
 class CabochonStoneLot(models.Model):
     _name = "cabochon.stone.lot"
@@ -74,8 +76,8 @@ class CabochonStoneLot(models.Model):
         tracking=True,
     )
     owner_employee_id = fields.Many2one("hr.employee", string="На руках у работника", ondelete="restrict", tracking=True)
-    initial_weight_g = fields.Float(string="Начальный вес, г", digits=(16, 4), required=True)
-    current_weight_g = fields.Float(string="Текущий вес, г", digits=(16, 4), required=True, tracking=True)
+    initial_weight_g = fields.Float(string="Начальный вес, г", digits=WEIGHT_DIGITS, required=True)
+    current_weight_g = fields.Float(string="Текущий вес, г", digits=WEIGHT_DIGITS, required=True, tracking=True)
     color_id = fields.Many2one("cabochon.color", string="Цвет", ondelete="restrict")
     stone_size_id = fields.Many2one("cabochon.size", string="Размер", ondelete="restrict")
     shape_id = fields.Many2one("cabochon.shape", string="Форма", ondelete="restrict")

@@ -1,7 +1,7 @@
 {
     "name": "Кабошоны: база",
     "summary": "Группы, справочники и аудит учета кабошонов",
-    "version": "19.0.2.1.0",
+    "version": "19.0.2.2.0",
     "category": "Inventory/Inventory",
     "author": "Cabochon Ware",
     "license": "LGPL-3",
