@@ -7,7 +7,6 @@ class CabochonFormType(models.Model):
     _order = "name"
 
     name = fields.Char(string="Название", required=True, index=True)
-    use_for_machine = fields.Boolean(string="ЧПУ, кабошонерка, шарокрутка")
     description = fields.Text(string="Описание")
     active = fields.Boolean(default=True)
 

@@ -1,5 +1,48 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <record id="view_cabochon_employee_selection_list" model="ir.ui.view">
+        <field name="name">hr.employee.cabochon.selection.list</field>
+        <field name="model">hr.employee</field>
+        <field name="priority">1000</field>
+        <field name="arch" type="xml">
+            <list create="0" edit="0" delete="0">
+                <field name="name"/>
+                <field name="job_id"/>
+                <field name="department_id"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cabochon_employee_selection_search" model="ir.ui.view">
+        <field name="name">hr.employee.cabochon.selection.search</field>
+        <field name="model">hr.employee</field>
+        <field name="priority">1000</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="job_id"/>
+                <field name="department_id"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_cabochon_employee_selection_form" model="ir.ui.view">
+        <field name="name">hr.employee.cabochon.selection.form</field>
+        <field name="model">hr.employee</field>
+        <field name="priority">1000</field>
+        <field name="arch" type="xml">
+            <form create="0" edit="0" delete="0">
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="job_id"/>
+                        <field name="department_id"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
     <record id="view_employee_form_cabochon_manufacturing" model="ir.ui.view">
         <field name="name">hr.employee.form.cabochon.manufacturing</field>
         <field name="model">hr.employee</field>

@@ -3,11 +3,9 @@
 Read `PROJECT_CONTEXT.md` first. It is the living project file and should be
 updated after each functional change.
 
-This file is the bootstrap instruction file for agents working in:
-
-```text
-C:\Users\Asus\data\cabochon-prod
-```
+The project is developed from several local workspaces, so do not hard-code a
+specific user directory. Use the current repository root and relative paths
+unless an absolute path is explicitly needed for a local command.
 
 ## First Step
 
@@ -28,33 +26,15 @@ Use it as the current source of truth for:
 - test notes;
 - recent functional decisions.
 
-If you change behavior, models, XML views, security rules, data, commands, or
+If you change behavior, models, XML views, security rules, data, commands or
 test status, update `PROJECT_CONTEXT.md` in the same turn.
 
 ## Project
 
 Cabochon Odoo is an Odoo 19 Community customization for tracking cabochon
 manufacturing by stone lots/bags, production operations, employee assignments,
-material issue/receipt, defects, losses, labels, notifications, reports, and
+material issue/receipt, defects, losses, labels, notifications, reports and
 immutable movement history.
-
-Main workspace:
-
-```text
-C:\Users\Asus\data\cabochon-prod
-```
-
-Custom addons:
-
-```text
-C:\Users\Asus\data\cabochon-prod\addons
-```
-
-Docker Compose lives outside this repository:
-
-```text
-C:\Users\Asus\data\odoo-local\docker-compose.yml
-```
 
 Current database:
 
@@ -93,13 +73,8 @@ docker exec odoo19-web odoo -d Cabachon -u cabochon_base,cabochon_manufacturing 
 Helper script:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install_cabochon_modules.ps1 -Database Cabachon
-```
-
-Restart Odoo:
-
-```powershell
-docker compose -f C:\Users\Asus\data\odoo-local\docker-compose.yml restart odoo
+powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database Cabachon -Install
+powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database Cabachon
 ```
 
 Lint:
@@ -113,14 +88,14 @@ python -m ruff check addons/cabochon_base addons/cabochon_manufacturing scripts
 `addons/cabochon_base`
 
 Base module. Defines root menu, access groups, active reference catalogs, audit
-log, and Cabochon mail activity rules.
+log and Cabochon mail activity rules.
 
 `addons/cabochon_manufacturing`
 
 Current business module for the lot-and-operation manufacturing specification.
 It owns operations, storage zones, stone lots/bags, production requests,
 issue/receipt documents, defect and loss registration, notifications, labels,
-reports, and the movement journal.
+reports and the movement journal.
 
 ## Editing Notes
 
@@ -129,8 +104,8 @@ reports, and the movement journal.
 - When adding XML/CSV/data files, include them in the manifest before views that
   need them.
 - Preserve Russian user-facing text as UTF-8.
-- Prefer structured Odoo models, record rules, reports, and actions over manual
+- Prefer structured Odoo models, record rules, reports and actions over manual
   SQL or ad hoc string parsing.
-- After Python, XML, CSV, data, or manifest changes, run lint and an Odoo module
+- After Python, XML, CSV, data or manifest changes, run lint and an Odoo module
   update when Docker is available.
 - After every meaningful change, update `PROJECT_CONTEXT.md`.

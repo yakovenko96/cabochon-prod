@@ -54,7 +54,7 @@ class CabochonStoneLot(models.Model):
         compute="_compute_security_manager_user_ids",
         store=True,
     )
-    supplier_id = fields.Many2one("res.partner", string="Поставщик", ondelete="restrict")
+    supplier_name = fields.Char(string="Поставщик")
     fraction = fields.Char(string="Фракция (текст)")
     fraction_id = fields.Many2one("cabochon.fraction", string="Фракция", ondelete="restrict")
     extraction_year = fields.Integer(string="Год добычи (число)")
@@ -67,7 +67,6 @@ class CabochonStoneLot(models.Model):
     waybill_number = fields.Char(string="Номер накладной")
     receipt_date = fields.Datetime(string="Дата поступления", default=fields.Datetime.now)
     accepted_by_id = fields.Many2one("hr.employee", string="Кто принял", ondelete="restrict")
-    operation_id = fields.Many2one("cabochon.manufacturing.operation", string="Последняя операция", ondelete="restrict")
     location_id = fields.Many2one(
         "cabochon.manufacturing.location",
         string="Текущая зона",
@@ -96,6 +95,7 @@ class CabochonStoneLot(models.Model):
             ("written_off", "Списан"),
         ],
         default="available",
+        string="Статус",
         required=True,
         tracking=True,
     )
@@ -252,6 +252,9 @@ class CabochonStoneLot(models.Model):
     @api.depends(
         "location_id.manager_id.user_id",
         "location_id.employee_id.user_id",
+        "child_ids.location_id.manager_id.user_id",
+        "child_ids.transfer_line_ids.transfer_id.manager_id.user_id",
+        "child_ids.new_lot_transfer_line_ids.transfer_id.manager_id.user_id",
         "transfer_line_ids.transfer_id.manager_id.user_id",
         "new_lot_transfer_line_ids.transfer_id.manager_id.user_id",
     )
@@ -260,6 +263,9 @@ class CabochonStoneLot(models.Model):
             users = (
                 lot.location_id.manager_id.user_id
                 | lot.location_id.employee_id.user_id
+                | lot.child_ids.location_id.manager_id.user_id
+                | lot.child_ids.transfer_line_ids.transfer_id.manager_id.user_id
+                | lot.child_ids.new_lot_transfer_line_ids.transfer_id.manager_id.user_id
                 | lot.transfer_line_ids.transfer_id.manager_id.user_id
                 | lot.new_lot_transfer_line_ids.transfer_id.manager_id.user_id
             )

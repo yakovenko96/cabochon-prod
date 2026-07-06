@@ -4,14 +4,14 @@
         <field name="name">cabochon.form.type.list</field>
         <field name="model">cabochon.form.type</field>
         <field name="arch" type="xml">
-            <list><field name="name"/><field name="use_for_machine"/><field name="description"/><field name="active"/></list>
+            <list><field name="name"/><field name="description"/><field name="active"/></list>
         </field>
     </record>
     <record id="view_cabochon_form_type_form" model="ir.ui.view">
         <field name="name">cabochon.form.type.form</field>
         <field name="model">cabochon.form.type</field>
         <field name="arch" type="xml">
-            <form><sheet><group><field name="name"/><field name="use_for_machine"/><field name="description"/><field name="active"/></group></sheet></form>
+            <form><sheet><group><field name="name"/><field name="description"/><field name="active"/></group></sheet></form>
         </field>
     </record>
     <record id="action_cabochon_form_type" model="ir.actions.act_window">

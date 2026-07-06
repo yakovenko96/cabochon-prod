@@ -207,7 +207,7 @@
         <field name="arch" type="xml">
             <search>
                 <field name="name"/>
-                <field name="supplier_id"/>
+                <field name="supplier_name"/>
                 <field name="fraction_id"/>
                 <field name="location_id"/>
                 <field name="owner_employee_id"/>
@@ -229,6 +229,7 @@
         <field name="arch" type="xml">
             <list create="0" edit="0" delete="0" decoration-warning="state == 'issued'" decoration-danger="state == 'inventory_difference'">
                 <field name="name" width="150px"/>
+                <field name="state" string="Статус"/>
                 <field name="fraction_id" width="180px"/>
                 <field name="extraction_year_id"/>
                 <field name="extraction_month"/>
@@ -240,7 +241,6 @@
                 <field name="stone_size_id" width="140px"/>
                 <field name="shape_id" width="150px"/>
                 <field name="form_type_id" width="180px"/>
-                <field name="state"/>
             </list>
         </field>
     </record>
@@ -262,7 +262,7 @@
                     </div>
                     <group>
                         <group string="Поступление">
-                            <field name="supplier_id"/>
+                            <field name="supplier_name"/>
                             <field name="waybill_number"/>
                             <field name="receipt_date"/>
                             <field name="accepted_by_id"/>
@@ -331,6 +331,7 @@
         <field name="view_mode">list,form,pivot,graph</field>
         <field name="search_view_id" ref="view_cabochon_stone_lot_search"/>
         <field name="domain">[('state','in',['available','issued','inventory_difference']),('current_weight_g','&gt;',0)]</field>
+        <field name="context">{'search_default_available': 1}</field>
     </record>
 
     <record id="view_cabochon_external_receipt_wizard_form" model="ir.ui.view">
@@ -341,7 +342,7 @@
                 <sheet>
                     <group>
                         <group>
-                            <field name="supplier_id"/>
+                            <field name="supplier_name" placeholder="Например: ИП Иванов, водитель Сергей, ООО Камень"/>
                             <field name="location_id"/>
                             <field name="lot_name"/>
                             <field name="initial_weight_g"/>
@@ -370,12 +371,54 @@
         <field name="target">new</field>
     </record>
 
+    <record id="view_cabochon_finished_issue_wizard_form" model="ir.ui.view">
+        <field name="name">cabochon.finished.issue.wizard.form</field>
+        <field name="model">cabochon.finished.issue.wizard</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="partner_id"/>
+                            <field name="issue_date"/>
+                        </group>
+                        <group>
+                            <field name="manager_id"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                        </group>
+                    </group>
+                    <field name="line_ids">
+                        <list editable="bottom">
+                            <field name="lot_id" domain="[('location_id.code', '=', 'finished'), ('state', '=', 'available'), ('is_defect_lot', '=', False), ('current_weight_g', '&gt;', 0)]" width="180px"/>
+                            <field name="available_weight_g"/>
+                            <field name="weight_g"/>
+                            <field name="note"/>
+                        </list>
+                    </field>
+                    <field name="note"/>
+                </sheet>
+                <footer>
+                    <button name="action_confirm" string="Выдать" type="object" class="btn-primary"/>
+                    <button string="Отмена" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_cabochon_finished_issue_wizard" model="ir.actions.act_window">
+        <field name="name">Продажа/выдача готовых камней</field>
+        <field name="res_model">cabochon.finished.issue.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
     <record id="view_cabochon_request_list" model="ir.ui.view">
         <field name="name">cabochon.production.request.list</field>
         <field name="model">cabochon.production.request</field>
         <field name="arch" type="xml">
-            <list default_order="id desc" decoration-danger="is_overdue" decoration-warning="state in ('confirmed','in_progress','partially_done')" decoration-muted="state in ('done','cancelled')">
+            <list default_order="id desc" decoration-danger="state not in ('done','cancelled') and (is_overdue or priority == '2')" decoration-warning="state not in ('done','cancelled') and priority == '1'" decoration-info="state in ('confirmed','in_progress','partially_done') and priority == '0'" decoration-muted="state in ('done','cancelled')">
                 <field name="name" width="150px"/>
+                <field name="state" string="Статус"/>
                 <field name="priority" string="Приоритет"/>
                 <field name="worker_id" width="220px"/>
                 <field name="operation_ids" widget="many2many_tags" width="300px"/>
@@ -392,7 +435,6 @@
                 <field name="closed_at" width="170px"/>
                 <field name="actual_duration_hours"/>
                 <field name="worker_load"/>
-                <field name="state"/>
             </list>
         </field>
     </record>
@@ -443,16 +485,17 @@
                     </div>
                     <group>
                         <group>
-                            <field name="technologist_id"/>
+                            <field name="technologist_id" domain="[('job_id.name', 'ilike', 'технолог')]" context="{'tree_view_ref': 'cabochon_manufacturing.view_cabochon_employee_selection_list', 'list_view_ref': 'cabochon_manufacturing.view_cabochon_employee_selection_list', 'search_view_ref': 'cabochon_manufacturing.view_cabochon_employee_selection_search', 'form_view_ref': 'cabochon_manufacturing.view_cabochon_employee_selection_form'}"/>
                             <field name="eligible_operation_ids" invisible="1"/>
                             <field name="eligible_lot_ids" invisible="1"/>
                             <field name="show_sort_type" invisible="1"/>
+                            <field name="show_task_lines" invisible="1"/>
                             <field name="show_receipt_destination_stage" invisible="1"/>
                             <field name="operation_ids" widget="many2many_tags" domain="source_lot_id and [('id', 'in', eligible_operation_ids)] or [('active', '=', True)]" readonly="state != 'draft'"/>
                             <field name="sort_type" invisible="not show_sort_type" readonly="state != 'draft'"/>
                             <field name="receipt_destination_stage" invisible="not show_receipt_destination_stage" readonly="state != 'draft'"/>
                             <field name="eligible_worker_ids" invisible="1"/>
-                            <field name="worker_id" domain="[('id', 'in', eligible_worker_ids)]" readonly="state != 'draft'"/>
+                            <field name="worker_id" domain="[('id', 'in', eligible_worker_ids)]" context="{'tree_view_ref': 'cabochon_manufacturing.view_cabochon_employee_selection_list', 'list_view_ref': 'cabochon_manufacturing.view_cabochon_employee_selection_list', 'search_view_ref': 'cabochon_manufacturing.view_cabochon_employee_selection_search', 'form_view_ref': 'cabochon_manufacturing.view_cabochon_employee_selection_form'}" readonly="state != 'draft'"/>
                             <field name="worker_load"/>
                             <field name="deadline" readonly="state != 'draft'"/>
                             <field name="priority" string="Приоритет" readonly="state != 'draft'"/>
@@ -485,12 +528,35 @@
                                 </list>
                             </field>
                         </page>
+                        <page string="Задачи" invisible="not show_task_lines">
+                            <field name="task_line_ids" readonly="state != 'draft'">
+                                <list editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="operation_id" width="240px" domain="[('id', 'in', parent.operation_ids)]"/>
+                                    <field name="operation_code" column_invisible="1"/>
+                                    <field name="show_sort_fields" column_invisible="1"/>
+                                    <field name="show_color_fields" column_invisible="1"/>
+                                    <field name="show_size_fields" column_invisible="1"/>
+                                    <field name="show_shape_fields" column_invisible="1"/>
+                                    <field name="show_form_type_fields" column_invisible="1"/>
+                                    <field name="eligible_stone_size_ids" column_invisible="1"/>
+                                    <field name="eligible_shape_ids" column_invisible="1"/>
+                                    <field name="eligible_form_type_ids" column_invisible="1"/>
+                                    <field name="sort_type" width="160px" invisible="not show_sort_fields" required="show_sort_fields"/>
+                                    <field name="color_id" width="140px" invisible="not show_color_fields" required="show_color_fields"/>
+                                    <field name="stone_size_id" width="140px" invisible="not show_size_fields" required="show_size_fields" domain="[('id', 'in', eligible_stone_size_ids)]"/>
+                                    <field name="shape_id" width="150px" invisible="not show_shape_fields" required="show_shape_fields" domain="[('id', 'in', eligible_shape_ids)]"/>
+                                    <field name="form_type_id" width="180px" invisible="not show_form_type_fields" required="show_form_type_fields" domain="[('id', 'in', eligible_form_type_ids)]"/>
+                                    <field name="note"/>
+                                </list>
+                            </field>
+                        </page>
                         <page string="Маршрут операций">
                             <field name="operation_line_ids" readonly="1">
                                 <list>
                                     <field name="sequence" widget="handle"/>
                                     <field name="operation_id" width="260px"/>
-                                    <field name="state"/>
+                                    <field name="state" string="Статус"/>
                                     <field name="started_at" width="170px"/>
                                     <field name="finished_at" width="170px"/>
                                     <field name="duration_hours"/>
@@ -502,12 +568,12 @@
                             <field name="receipt_ids" readonly="1">
                                 <list>
                                     <field name="name" width="150px"/>
+                                    <field name="state" string="Статус"/>
                                     <field name="transfer_type"/>
                                     <field name="transfer_date" width="170px"/>
                                     <field name="total_weight_g"/>
                                     <field name="total_defect_weight_g"/>
                                     <field name="total_lost_weight_g"/>
-                                    <field name="state"/>
                                 </list>
                             </field>
                         </page>
@@ -545,10 +611,10 @@
         <field name="arch" type="xml">
             <list>
                 <field name="request_id"/>
+                <field name="state" string="Статус"/>
                 <field name="sequence"/>
                 <field name="operation_id"/>
                 <field name="worker_id"/>
-                <field name="state"/>
                 <field name="started_at"/>
                 <field name="finished_at"/>
                 <field name="duration_hours" sum="Время"/>
@@ -646,6 +712,7 @@
         <field name="arch" type="xml">
             <list default_order="state_order, transfer_date desc, id desc" decoration-warning="state in ('draft','manager_confirmed')" decoration-muted="state == 'confirmed'">
                 <field name="name" width="150px"/>
+                <field name="state" string="Статус"/>
                 <field name="transfer_type"/>
                 <field name="request_id" width="160px"/>
                 <field name="worker_id" width="220px"/>
@@ -659,7 +726,6 @@
                 <field name="total_detected_defect_weight_g" sum="Выявленный брак"/>
                 <field name="total_made_defect_weight_g" sum="Сделанный брак"/>
                 <field name="total_lost_weight_g" sum="Потери"/>
-                <field name="state"/>
             </list>
         </field>
     </record>
@@ -841,7 +907,7 @@
         <field name="arch" type="xml">
             <form create="0" delete="0">
                 <header>
-                    <button name="action_open_correction_wizard" string="Корректировка" type="object" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
+                    <button name="action_open_correction_wizard" string="Корректировка" type="object" groups="cabochon_base.group_cabochon_admin"/>
                 </header>
                 <sheet>
                     <div class="oe_title">

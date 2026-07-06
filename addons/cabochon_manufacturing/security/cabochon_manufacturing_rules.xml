@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="cabochon_base.group_cabochon_admin" model="res.groups">
-        <field name="implied_ids" eval="[(4, ref('hr.group_hr_user'))]"/>
+        <field name="implied_ids" eval="[(4, ref('hr.group_hr_user')), (4, ref('hr.group_hr_manager'))]"/>
     </record>
 
     <record id="rule_cabochon_location_user_personal" model="ir.rule">

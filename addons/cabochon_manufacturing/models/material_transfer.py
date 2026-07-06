@@ -55,6 +55,7 @@ class CabochonMaterialTransfer(models.Model):
             ("confirmed", "Подтверждено"),
         ],
         default="draft",
+        string="Статус",
         readonly=True,
         required=True,
         tracking=True,
@@ -428,7 +429,7 @@ class CabochonMaterialTransfer(models.Model):
         self.ensure_one()
         values = {
             "parent_id": source_lot.id,
-            "supplier_id": source_lot.supplier_id.id if source_lot.supplier_id else False,
+            "supplier_name": source_lot.supplier_name,
             "fraction": source_lot.fraction,
             "fraction_id": source_lot.fraction_id.id if source_lot.fraction_id else False,
             "extraction_year": source_lot.extraction_year,
@@ -437,7 +438,6 @@ class CabochonMaterialTransfer(models.Model):
             "waybill_number": source_lot.waybill_number,
             "receipt_date": source_lot.receipt_date,
             "accepted_by_id": source_lot.accepted_by_id.id if source_lot.accepted_by_id else False,
-            "operation_id": source_lot.operation_id.id if source_lot.operation_id else False,
             "location_id": source_location.id,
             "initial_weight_g": weight_g,
             "current_weight_g": weight_g,
@@ -528,14 +528,7 @@ class CabochonMaterialTransfer(models.Model):
                 self.env["cabochon.manufacturing.movement"].sudo().create(
                     self._movement_values(line, "loss", source_lot, line.lost_weight_g, source_location, loss_destination)
                 )
-            if source_lot:
-                remaining_weight = source_lot.current_weight_g - consumed_weight
-                source_lot.sudo().with_context(cabochon_inventory_movement=True).write(
-                    {
-                        "current_weight_g": remaining_weight,
-                        "state": "consumed" if float_is_zero(remaining_weight, precision_digits=4) else source_lot.state,
-                    }
-                )
+            self._consume_receipt_line_source_lots(line, consumed_weight)
         if self.request_id and self.request_id.state in ("in_progress", "partially_done"):
             self.request_id.sudo()._finish_open_operation_lines(self.transfer_date)
             close_request = self.primary_operation_id.code in ("tumble_wash", "toluene_wash")
@@ -593,12 +586,58 @@ class CabochonMaterialTransfer(models.Model):
         self.ensure_one()
         consumed_weight_by_lot = {}
         for line in self.line_ids:
-            source_lot = line.sudo().lot_id or self.request_id.sudo().source_lot_id
-            if not source_lot:
+            consumed_weight = line.weight_g + line.defect_weight_g + line.lost_weight_g
+            mixed_lots = self._mixed_issue_lots_for_receipt_line(line)
+            if mixed_lots:
+                for source_lot, weight in self._distributed_consumed_weights(mixed_lots, consumed_weight):
+                    consumed_weight_by_lot.setdefault(source_lot.id, 0.0)
+                    consumed_weight_by_lot[source_lot.id] += weight
                 continue
-            consumed_weight_by_lot.setdefault(source_lot.id, 0.0)
-            consumed_weight_by_lot[source_lot.id] += line.weight_g + line.defect_weight_g + line.lost_weight_g
+            source_lot = line.sudo().lot_id or self.request_id.sudo().source_lot_id
+            if source_lot:
+                consumed_weight_by_lot.setdefault(source_lot.id, 0.0)
+                consumed_weight_by_lot[source_lot.id] += consumed_weight
         return consumed_weight_by_lot
+
+    def _consume_receipt_line_source_lots(self, line, consumed_weight):
+        mixed_lots = self._mixed_issue_lots_for_receipt_line(line)
+        if mixed_lots:
+            lots_and_weights = self._distributed_consumed_weights(mixed_lots, consumed_weight)
+        else:
+            source_lot = line.sudo().lot_id or self.request_id.sudo().source_lot_id
+            lots_and_weights = [(source_lot, consumed_weight)] if source_lot else []
+        for source_lot, weight in lots_and_weights:
+            remaining_weight = source_lot.current_weight_g - weight
+            source_lot.sudo().with_context(cabochon_inventory_movement=True).write(
+                {
+                    "current_weight_g": remaining_weight,
+                    "state": "consumed" if float_is_zero(remaining_weight, precision_digits=4) else source_lot.state,
+                }
+            )
+
+    def _mixed_issue_lots_for_receipt_line(self, line):
+        self.ensure_one()
+        if not self.request_id or not line.task_line_id:
+            return self.env["cabochon.stone.lot"]
+        issue_lines = self.request_id.issue_id.line_ids
+        if len(issue_lines) <= 1:
+            return self.env["cabochon.stone.lot"]
+        return issue_lines.mapped("lot_id")
+
+    def _distributed_consumed_weights(self, lots, consumed_weight):
+        remaining = consumed_weight
+        lots_and_weights = []
+        for lot in lots:
+            if float_is_zero(remaining, precision_digits=4):
+                break
+            lot.invalidate_recordset(["current_weight_g"])
+            weight = min(lot.current_weight_g, remaining)
+            if not float_is_zero(weight, precision_digits=4):
+                lots_and_weights.append((lot, weight))
+            remaining -= weight
+        if lots and float_compare(remaining, 0.0, precision_digits=4) > 0:
+            lots_and_weights.append((lots[-1], remaining))
+        return lots_and_weights
 
     def _movement_values(self, line, kind, lot, weight, source_location, destination_location, new_lot=False, defect_kind=False):
         return {
@@ -706,6 +745,13 @@ class CabochonMaterialTransferLine(models.Model):
     transfer_type = fields.Selection(related="transfer_id.transfer_type", store=True, readonly=True)
     lot_id = fields.Many2one("cabochon.stone.lot", string="Исходный мешок", ondelete="restrict")
     new_lot_id = fields.Many2one("cabochon.stone.lot", string="Новый мешок", readonly=True, copy=False)
+    task_line_id = fields.Many2one(
+        "cabochon.production.request.task.line",
+        string="Задача",
+        ondelete="restrict",
+        readonly=True,
+        copy=False,
+    )
     weight_before_g = fields.Float(string="Вес до операции, г", digits=WEIGHT_DIGITS)
     weight_g = fields.Float(string="Фактический вес, г", digits=WEIGHT_DIGITS)
     detected_defect_weight_g = fields.Float(string="Выявленный брак, г", digits=WEIGHT_DIGITS)
@@ -727,16 +773,19 @@ class CabochonMaterialTransferLine(models.Model):
     eligible_stone_size_ids = fields.Many2many(
         "cabochon.size",
         compute="_compute_eligible_reference_ids",
+        compute_sudo=True,
         string="Доступные размеры",
     )
     eligible_shape_ids = fields.Many2many(
         "cabochon.shape",
         compute="_compute_eligible_reference_ids",
+        compute_sudo=True,
         string="Доступные формы",
     )
     eligible_form_type_ids = fields.Many2many(
         "cabochon.form.type",
         compute="_compute_eligible_reference_ids",
+        compute_sudo=True,
         string="Доступные типы формы",
     )
     note = fields.Text(string="Комментарий")
@@ -755,7 +804,6 @@ class CabochonMaterialTransferLine(models.Model):
             codes = set(line.transfer_id.operation_ids.mapped("code"))
             size_flags = []
             shape_flags = []
-            form_type_flags = []
             if codes & {"manual_sorting", "auto_separator"}:
                 size_flags.append("use_for_sorting")
             if "press" in codes:
@@ -764,10 +812,9 @@ class CabochonMaterialTransferLine(models.Model):
             if codes & MACHINE_OPERATION_CODES:
                 size_flags.append("use_for_machine")
                 shape_flags.append("use_for_machine")
-                form_type_flags.append("use_for_machine")
             line.eligible_stone_size_ids = self._eligible_reference_records(size_model, size_flags)
             line.eligible_shape_ids = self._eligible_reference_records(shape_model, shape_flags)
-            line.eligible_form_type_ids = self._eligible_reference_records(form_type_model, form_type_flags)
+            line.eligible_form_type_ids = form_type_model.search([("active", "=", True)])
 
     @api.model
     def _eligible_reference_records(self, model, usage_flags):
@@ -994,12 +1041,12 @@ class CabochonMaterialTransferLine(models.Model):
             "name": self._next_received_lot_name(source_lot),
             "parent_id": source_lot.id if source_lot else False,
             "source_lot_ids": [
-                (6, 0, self.transfer_id.request_id.issue_id.line_ids.mapped("new_lot_id").ids)
+                (6, 0, self.transfer_id.request_id.issue_id.line_ids.mapped("lot_id").ids)
             ]
             if self.transfer_id.request_id
             and len(self.transfer_id.request_id.issue_id.line_ids) > 1
             else False,
-            "supplier_id": source_lot.supplier_id.id if source_lot else False,
+            "supplier_name": source_lot.supplier_name if source_lot else False,
             "fraction": source_lot.fraction if source_lot else False,
             "fraction_id": source_lot.fraction_id.id if source_lot and source_lot.fraction_id else False,
             "extraction_year": source_lot.extraction_year if source_lot else False,
@@ -1007,7 +1054,6 @@ class CabochonMaterialTransferLine(models.Model):
             "extraction_month": source_lot.extraction_month if source_lot else False,
             "waybill_number": source_lot.waybill_number if source_lot else False,
             "accepted_by_id": self.transfer_id.manager_id.id if self.transfer_id.manager_id else False,
-            "operation_id": self.transfer_id.operation_ids.sorted("sequence")[-1:].id if self.transfer_id.operation_ids else False,
             "location_id": destination.id,
             "initial_weight_g": self.weight_g,
             "current_weight_g": self.weight_g,
@@ -1029,7 +1075,30 @@ class CabochonMaterialTransferLine(models.Model):
             "form_type": self.form_type or (source_lot.form_type if source_lot else False),
             "company_id": self.transfer_id.company_id.id,
         }
+        if destination.code == "finished":
+            existing_lot = self._find_finished_lot_to_merge(values, destination)
+            if existing_lot:
+                existing_lot.with_context(cabochon_inventory_movement=True).write(
+                    {
+                        "initial_weight_g": existing_lot.initial_weight_g + self.weight_g,
+                        "current_weight_g": existing_lot.current_weight_g + self.weight_g,
+                    }
+                )
+                return existing_lot
         return self.env["cabochon.stone.lot"].sudo().create(values)
+
+    def _find_finished_lot_to_merge(self, values, destination):
+        self.ensure_one()
+        domain = [
+            ("location_id", "=", destination.id),
+            ("company_id", "=", self.transfer_id.company_id.id),
+            ("state", "=", "available"),
+            ("is_defect_lot", "=", False),
+        ]
+        for field_name in ("color_id", "stone_size_id", "shape_id", "form_type_id"):
+            value = values.get(field_name)
+            domain.append((field_name, "=", value or False))
+        return self.env["cabochon.stone.lot"].sudo().search(domain, order="id", limit=1)
 
     def _add_to_defect_lot(self, destination, weight_g):
         self.ensure_one()

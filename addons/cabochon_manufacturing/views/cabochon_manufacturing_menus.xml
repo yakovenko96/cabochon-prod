@@ -1,15 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <menuitem id="menu_cabochon_manufacturing_root" name="Изготовление" parent="cabochon_base.menu_cabochon_root" sequence="15" groups="cabochon_base.group_cabochon_user"/>
+    <menuitem id="menu_cabochon_manufacturing_root" name="Операционный учет" parent="cabochon_base.menu_cabochon_root" sequence="15" groups="cabochon_base.group_cabochon_user"/>
 
     <menuitem id="menu_cabochon_manufacturing_work" name="Работа" parent="menu_cabochon_manufacturing_root" sequence="10"/>
     <menuitem id="menu_cabochon_worker_load_report" name="Панель технолога" parent="menu_cabochon_manufacturing_work" action="action_cabochon_worker_load_report" sequence="5" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
     <menuitem id="menu_cabochon_request" name="Заявки" parent="menu_cabochon_manufacturing_work" action="action_cabochon_request" sequence="10"/>
     <menuitem id="menu_cabochon_external_receipt" name="Приход сырья" parent="menu_cabochon_manufacturing_work" action="action_cabochon_external_receipt_wizard" sequence="15" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_admin"/>
+    <menuitem id="menu_cabochon_finished_issue" name="Продажа/выдача готовых камней" parent="menu_cabochon_manufacturing_work" action="action_cabochon_finished_issue_wizard" sequence="16" groups="cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
     <menuitem id="menu_cabochon_transfer" name="Мои получения и сдачи" parent="menu_cabochon_manufacturing_work" action="action_cabochon_my_transfer" sequence="20" groups="cabochon_base.group_cabochon_user"/>
     <menuitem id="menu_cabochon_managed_transfer" name="Выдачи и прием от сотрудников" parent="menu_cabochon_manufacturing_work" action="action_cabochon_managed_transfer" sequence="21" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
     <menuitem id="menu_cabochon_stone_lot" name="Остатки на складе" parent="menu_cabochon_manufacturing_work" action="action_cabochon_stone_lot" sequence="30"/>
-    <menuitem id="menu_cabochon_corrections" name="Корректировки" parent="menu_cabochon_manufacturing_work" action="action_cabochon_movement_correction_wizard" sequence="40" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
+    <menuitem id="menu_cabochon_corrections" name="Корректировки" parent="menu_cabochon_manufacturing_work" action="action_cabochon_movement_correction_wizard" sequence="40" groups="cabochon_base.group_cabochon_admin"/>
 
     <menuitem id="menu_cabochon_manufacturing_reports" name="Отчеты" parent="menu_cabochon_manufacturing_root" sequence="20"/>
     <menuitem id="menu_cabochon_my_defect_report" name="Мой брак и потери" parent="menu_cabochon_manufacturing_reports" action="action_cabochon_my_defect_report" sequence="5" groups="cabochon_base.group_cabochon_user"/>

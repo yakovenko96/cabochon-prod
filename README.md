@@ -1,10 +1,11 @@
 # Cabochon Odoo
 
-Кастомизация Odoo 19 Community для учета изготовления кабошонов: партии и
-мешки камней, складские зоны, операции, назначения работников, выдачи/сдачи,
-брак, потери, этикетки, уведомления, отчеты и неизменяемый журнал движений.
+Кастомизация Odoo 19 Community для учета изготовления кабошонов: мешки камней,
+складские зоны, операции, заявки, выдачи/сдачи, брак, потери, этикетки,
+уведомления, отчеты и неизменяемый журнал движений.
 
-Перед работой с проектом читайте [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
+Актуальные рабочие правила и последние проверки ведутся в
+[PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
 
 ## Структура
 
@@ -13,7 +14,7 @@ addons/
   cabochon_base/
   cabochon_manufacturing/
 scripts/
-  install_cabochon_modules.ps1
+  install_modules.ps1
 AGENTS.md
 PROJECT_CONTEXT.md
 README.md
@@ -27,71 +28,87 @@ cabochon_base
 cabochon_manufacturing
 ```
 
-## Локальный запуск
+## Установка Модулей
 
-Docker Compose находится здесь:
-
-```text
-C:\Users\Asus\data\odoo-local\docker-compose.yml
-```
-
-Запуск:
-
-```powershell
-cd C:\Users\Asus\data\odoo-local
-docker compose up -d
-docker compose ps
-```
-
-Веб-интерфейс:
-
-```text
-http://127.0.0.1:8069/
-```
-
-Текущая база:
+База разработки:
 
 ```text
 Cabachon
 ```
 
-Рабочий каталог проекта:
+Скрипт `scripts/install_modules.ps1` не создает базу Odoo. Он работает с уже
+созданной базой и устанавливает или обновляет в ней активные модули:
 
 ```text
-C:\Users\Asus\data\cabochon-prod
+cabochon_base,cabochon_manufacturing
 ```
 
-Ожидаемое подключение custom addons:
+После установки в базе появятся меню, группы, права, системные операции и
+складские зоны. Бизнес-данные при чистой установке остаются пустыми: без
+мешков, заявок, выдач/сдач и движений. Пользователей, сотрудников, группы
+пользователей и менеджеров складских зон нужно настроить отдельно.
 
-```yaml
-volumes:
-  - C:/Users/Asus/data/cabochon-prod/addons:/mnt/extra-addons
-```
+### Docker
 
-## Команды
-
-Обновить активные модули:
+Первый запуск на уже созданной базе, где модули еще не установлены:
 
 ```powershell
-docker exec odoo19-web odoo -d Cabachon -u cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
+powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database Cabachon -Install
 ```
 
-Установить активные модули:
+Повторный запуск после изменений кода:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database Cabachon
+```
+
+Ручная команда установки через Docker:
 
 ```powershell
 docker exec odoo19-web odoo -d Cabachon -i cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
 ```
 
-Helper-скрипт обновления:
+Ручная команда обновления через Docker:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install_cabochon_modules.ps1 -Database Cabachon
+docker exec odoo19-web odoo -d Cabachon -u cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
 ```
 
-Перезапустить Odoo:
+### Без Docker
+
+Так тоже можно. На машине должен быть развернут Odoo 19 и создана база. Папку
+`addons` этого проекта нужно добавить в `addons_path` конфигурации Odoo,
+например:
+
+```ini
+addons_path = C:\path\to\odoo\addons,C:\path\to\cabochon-prod\addons
+```
+
+После этого обновите список приложений в Odoo или запустите установку из
+консоли.
+
+Первый запуск через локальный `odoo-bin`:
 
 ```powershell
-docker compose -f C:\Users\Asus\data\odoo-local\docker-compose.yml restart odoo
+odoo-bin -d Cabachon -i cabochon_base,cabochon_manufacturing --stop-after-init --config C:\path\to\odoo.conf
+```
+
+Обновление через локальный `odoo-bin`:
+
+```powershell
+odoo-bin -d Cabachon -u cabochon_base,cabochon_manufacturing --stop-after-init --config C:\path\to\odoo.conf
+```
+
+Первый запуск через helper-скрипт без Docker:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database Cabachon -Install -OdooBin C:\path\to\odoo-bin.exe -Config C:\path\to\odoo.conf -DbHost localhost -DbPort 5432 -DbUser odoo -DbPassword 123321
+```
+
+Обновление через helper-скрипт без Docker:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database Cabachon -OdooBin C:\path\to\odoo-bin.exe -Config C:\path\to\odoo.conf -DbHost localhost -DbPort 5432 -DbUser odoo -DbPassword 123321
 ```
 
 Проверки:
@@ -101,32 +118,11 @@ python -m ruff check addons/cabochon_base addons/cabochon_manufacturing scripts
 python -m compileall -q addons/cabochon_base addons/cabochon_manufacturing scripts
 ```
 
-Odoo-тесты Cabochon:
-
-```powershell
-docker exec odoo19-web odoo -d Cabachon -u cabochon_base,cabochon_manufacturing --test-enable --test-tags /cabochon_base,/cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --http-port 8070
-```
-
 ## Модули
 
-`cabochon_base` содержит меню, группы доступа, активные справочники, журнал
-действий и защиту `mail.activity`.
+`cabochon_base` содержит корневое меню, группы доступа, активные справочники,
+журнал действий и защиту Cabochon-активностей.
 
 `cabochon_manufacturing` содержит операции, складские зоны, мешки, внешний
-приход, заявки, выдачи/сдачи, движения, корректировки, отчеты и этикетки.
-
-## Основной процесс
-
-1. Менеджер склада оформляет внешний приход.
-2. Технолог создает заявку на операции и выбирает работника.
-3. Подтверждение заявки создает выдачу.
-4. Менеджер подтверждает выдачу, затем работник подтверждает получение.
-5. Сдача фиксирует годный вес, брак и потери.
-6. Менеджер подтверждает прием сдачи, затем работник подтверждает передачу.
-7. Второе подтверждение создает неизменяемые движения и результирующие мешки.
-8. Ошибки исправляются корректирующими движениями, а не изменением истории.
-
-## Документация
-
-Актуальные детали бизнес-правил, ролей, моделей и последних проверок находятся
-в [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
+приход, заявки, выдачи/сдачи, движения, корректировки, отчеты, продажу/выдачу
+готовых камней и этикетки.

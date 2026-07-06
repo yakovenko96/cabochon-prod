@@ -269,15 +269,9 @@ class CabochonMovementCorrectionWizard(models.TransientModel):
 
     @api.model
     def _user_allowed_correction_location_codes(self):
-        user = self.env.user
-        if user.has_group("cabochon_base.group_cabochon_admin"):
-            return {"raw", "prepared", "semi_finished", "finished", "employee", "loss"}
-        allowed_codes = set()
-        if user.has_group("cabochon_base.group_cabochon_manager"):
-            allowed_codes.update({"raw", "prepared", "semi_finished"})
-        if user.has_group("cabochon_base.group_cabochon_finished_manager"):
-            allowed_codes.add("finished")
-        return allowed_codes
+        if not self.env.user.has_group("cabochon_base.group_cabochon_admin"):
+            return set()
+        return {"raw", "prepared", "semi_finished", "finished", "employee", "loss"}
 
     @api.model
     def _user_can_correct_lot(self, lot):
@@ -292,9 +286,7 @@ class CabochonMovementCorrectionWizard(models.TransientModel):
         allowed_codes = self._user_allowed_correction_location_codes()
         if location.code not in allowed_codes:
             return False
-        if self.env.user.has_group("cabochon_base.group_cabochon_admin"):
-            return True
-        return bool(self.env.user.employee_id and location.manager_id == self.env.user.employee_id)
+        return self.env.user.has_group("cabochon_base.group_cabochon_admin")
 
     def _check_correction_scope(self):
         if not self._user_can_correct_location(self.lot_id.location_id):

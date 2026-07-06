@@ -5,6 +5,8 @@ from odoo.tools.float_utils import float_compare
 from .constants import EXCLUSIVE_OPERATION_GROUPS, SINGLE_REQUEST_OPERATION_GROUPS, SORT_OPERATION_TYPES
 
 WEIGHT_DIGITS = (16, 1)
+MACHINE_OPERATION_CODES = {"cnc", "cabochon_machine", "ball_machine"}
+TASK_OPERATION_CODES = {"press"} | MACHINE_OPERATION_CODES
 
 
 class CabochonProductionRequest(models.Model):
@@ -40,6 +42,7 @@ class CabochonProductionRequest(models.Model):
     )
     sort_type = fields.Char(string="Тип сортировки")
     show_sort_type = fields.Boolean(compute="_compute_show_sort_type")
+    show_task_lines = fields.Boolean(compute="_compute_show_task_lines")
     receipt_destination_stage = fields.Selection(
         [("semi_finished", "Склад полуфабрикатов"), ("finished", "Склад готовых камней")],
         string="Склад сдачи",
@@ -59,6 +62,12 @@ class CabochonProductionRequest(models.Model):
         "cabochon.production.request.source.line",
         "request_id",
         string="Дополнительные исходные мешки",
+        copy=True,
+    )
+    task_line_ids = fields.One2many(
+        "cabochon.production.request.task.line",
+        "request_id",
+        string="Производственные задачи",
         copy=True,
     )
     total_planned_weight_g = fields.Float(
@@ -83,6 +92,7 @@ class CabochonProductionRequest(models.Model):
             ("cancelled", "Отменена"),
         ],
         default="draft",
+        string="Статус",
         readonly=True,
         required=True,
         tracking=True,
@@ -179,6 +189,7 @@ class CabochonProductionRequest(models.Model):
             "receipt_destination_stage",
             "source_lot_id",
             "additional_source_line_ids",
+            "task_line_ids",
             "planned_weight_g",
             "deadline",
             "priority",
@@ -190,6 +201,7 @@ class CabochonProductionRequest(models.Model):
         result = super().write(vals)
         if "operation_ids" in vals and not self.env.context.get("skip_operation_line_sync"):
             self._sync_operation_lines()
+            self._clear_obsolete_task_lines()
         if {"deadline", "state", "technologist_id"}.intersection(vals):
             self._clear_overdue_activities()
             self._notify_overdue_technologists()
@@ -314,6 +326,11 @@ class CabochonProductionRequest(models.Model):
         for request in self:
             request.show_sort_type = bool(set(request.operation_ids.mapped("code")) & set(SORT_OPERATION_TYPES))
 
+    @api.depends("operation_ids.code")
+    def _compute_show_task_lines(self):
+        for request in self:
+            request.show_task_lines = bool(set(request.operation_ids.mapped("code")) & TASK_OPERATION_CODES)
+
     @api.depends("operation_ids.final_operation")
     def _compute_show_receipt_destination_stage(self):
         for request in self:
@@ -378,6 +395,7 @@ class CabochonProductionRequest(models.Model):
         self._normalize_selected_operations()
         self._set_sort_type_from_operations()
         self._set_default_receipt_destination_stage()
+        self._clear_obsolete_task_lines()
         if not self.worker_id:
             return {
                 "domain": {
@@ -419,6 +437,14 @@ class CabochonProductionRequest(models.Model):
         for request in self:
             if not request.operation_ids.filtered("final_operation"):
                 request.receipt_destination_stage = "semi_finished"
+
+    def _clear_obsolete_task_lines(self):
+        for request in self:
+            operation_ids = set(request.operation_ids.ids)
+            obsolete_lines = request.task_line_ids.filtered(
+                lambda line, ids=operation_ids: line.operation_id.id not in ids
+            )
+            obsolete_lines.unlink()
 
     @api.constrains(
         "worker_id", "operation_ids", "source_lot_id", "planned_weight_g", "additional_source_line_ids"
@@ -515,6 +541,7 @@ class CabochonProductionRequest(models.Model):
         for request in self:
             if request.state != "draft":
                 continue
+            request._validate_task_lines()
             request._sync_operation_lines()
             request._ensure_issue_transfer()
             request.write(
@@ -524,6 +551,19 @@ class CabochonProductionRequest(models.Model):
                 }
             )
             request.issue_id._notify_manager_activity()
+
+    def _validate_task_lines(self):
+        for request in self:
+            task_operations = request.operation_ids.filtered(lambda operation: operation.code in TASK_OPERATION_CODES)
+            if not task_operations:
+                continue
+            if not request.task_line_ids:
+                raise UserError("Добавьте производственные задачи для операций со справочниками.")
+            missing_operations = task_operations - request.task_line_ids.mapped("operation_id")
+            if missing_operations:
+                names = ", ".join(missing_operations.mapped("display_name"))
+                raise UserError(f"Добавьте производственные задачи для операций: {names}.")
+            request.task_line_ids._check_task_line_values()
 
     def action_create_receipt(self):
         for request in self:
@@ -743,6 +783,19 @@ class CabochonProductionRequest(models.Model):
         return location
 
     def _receipt_line_commands(self, issue_lines):
+        if self.task_line_ids:
+            receipt_weight_before = self._receipt_weight_before(issue_lines)
+            issued_pairs = [(lot, weight) for lot, weight in (issue_lines or []) if lot]
+            if len(issued_pairs) == len(self.task_line_ids):
+                pairs = zip(self.task_line_ids, issued_pairs, strict=False)
+            else:
+                default_lot = issued_pairs[:1][0][0] if issued_pairs else self.source_lot_id
+                default_weight = receipt_weight_before
+                pairs = ((task, (default_lot, default_weight)) for task in self.task_line_ids)
+            return [
+                (0, 0, task._receipt_line_values(lot=lot, weight_before=weight))
+                for task, (lot, weight) in pairs
+            ]
         return [
             (
                 0,
@@ -762,6 +815,168 @@ class CabochonProductionRequest(models.Model):
         if weights:
             return sum(weights)
         return self.source_lot_id.current_weight_g or self.source_lot_id.initial_weight_g
+
+
+class CabochonProductionRequestTaskLine(models.Model):
+    _name = "cabochon.production.request.task.line"
+    _description = "Производственная задача заявки"
+    _order = "request_id, sequence, id"
+
+    request_id = fields.Many2one(
+        "cabochon.production.request",
+        string="Заявка",
+        required=True,
+        ondelete="cascade",
+    )
+    sequence = fields.Integer(string="Порядок", default=10)
+    operation_id = fields.Many2one(
+        "cabochon.manufacturing.operation",
+        string="Операция",
+        required=True,
+        ondelete="restrict",
+    )
+    operation_code = fields.Char(related="operation_id.code", store=True, readonly=True)
+    sort_type = fields.Char(string="Тип сортировки")
+    color_id = fields.Many2one("cabochon.color", string="Цвет", ondelete="restrict")
+    stone_size_id = fields.Many2one("cabochon.size", string="Размер", ondelete="restrict")
+    shape_id = fields.Many2one("cabochon.shape", string="Форма", ondelete="restrict")
+    form_type_id = fields.Many2one("cabochon.form.type", string="Тип формы", ondelete="restrict")
+    show_sort_fields = fields.Boolean(compute="_compute_field_visibility")
+    show_press_fields = fields.Boolean(compute="_compute_field_visibility")
+    show_machine_fields = fields.Boolean(compute="_compute_field_visibility")
+    show_color_fields = fields.Boolean(compute="_compute_field_visibility")
+    show_size_fields = fields.Boolean(compute="_compute_field_visibility")
+    show_shape_fields = fields.Boolean(compute="_compute_field_visibility")
+    show_form_type_fields = fields.Boolean(compute="_compute_field_visibility")
+    eligible_stone_size_ids = fields.Many2many(
+        "cabochon.size",
+        compute="_compute_eligible_reference_ids",
+        compute_sudo=True,
+        string="Доступные размеры",
+    )
+    eligible_shape_ids = fields.Many2many(
+        "cabochon.shape",
+        compute="_compute_eligible_reference_ids",
+        compute_sudo=True,
+        string="Доступные формы",
+    )
+    eligible_form_type_ids = fields.Many2many(
+        "cabochon.form.type",
+        compute="_compute_eligible_reference_ids",
+        compute_sudo=True,
+        string="Доступные типы формы",
+    )
+    note = fields.Text(string="Комментарий")
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            operation = self.env["cabochon.manufacturing.operation"].browse(vals.get("operation_id"))
+            if operation.code in SORT_OPERATION_TYPES and not vals.get("sort_type"):
+                vals["sort_type"] = SORT_OPERATION_TYPES[operation.code]
+        return super().create(vals_list)
+
+    @api.depends("operation_id.code")
+    def _compute_field_visibility(self):
+        for line in self:
+            code = line.operation_id.code
+            line.show_sort_fields = code in SORT_OPERATION_TYPES
+            line.show_press_fields = code == "press"
+            line.show_machine_fields = code in MACHINE_OPERATION_CODES
+            line.show_color_fields = line.show_sort_fields
+            line.show_size_fields = line.show_sort_fields or line.show_press_fields or line.show_machine_fields
+            line.show_shape_fields = line.show_press_fields or line.show_machine_fields
+            line.show_form_type_fields = line.show_machine_fields
+
+    @api.depends("operation_id.code")
+    def _compute_eligible_reference_ids(self):
+        size_model = self.env["cabochon.size"].sudo()
+        shape_model = self.env["cabochon.shape"].sudo()
+        form_type_model = self.env["cabochon.form.type"].sudo()
+        for line in self:
+            code = line.operation_id.code
+            size_flags = []
+            shape_flags = []
+            if code in SORT_OPERATION_TYPES:
+                size_flags.append("use_for_sorting")
+            if code == "press":
+                size_flags.append("use_for_press")
+                shape_flags.append("use_for_press")
+            if code in MACHINE_OPERATION_CODES:
+                size_flags.append("use_for_machine")
+                shape_flags.append("use_for_machine")
+            line.eligible_stone_size_ids = self._eligible_reference_records(size_model, size_flags)
+            line.eligible_shape_ids = self._eligible_reference_records(shape_model, shape_flags)
+            line.eligible_form_type_ids = form_type_model.search([("active", "=", True)])
+
+    @api.model
+    def _eligible_reference_records(self, model, usage_flags):
+        all_records = model.search([("active", "=", True)])
+        if not usage_flags:
+            return all_records
+        tagged_records = model.browse()
+        for flag in usage_flags:
+            tagged_records |= all_records.filtered(flag)
+        return tagged_records or all_records
+
+    @api.onchange("operation_id")
+    def _onchange_operation_id(self):
+        if self.operation_id.code in SORT_OPERATION_TYPES and not self.sort_type:
+            self.sort_type = SORT_OPERATION_TYPES[self.operation_id.code]
+
+    @api.constrains(
+        "request_id",
+        "operation_id",
+        "sort_type",
+        "color_id",
+        "stone_size_id",
+        "shape_id",
+        "form_type_id",
+    )
+    def _check_task_line_values(self):
+        for line in self:
+            if line.operation_id not in line.request_id.operation_ids:
+                raise ValidationError("Операция задачи должна быть выбрана в маршруте заявки.")
+            code = line.operation_id.code
+            if code not in TASK_OPERATION_CODES:
+                raise ValidationError("Задачи добавляются только для операций со справочниками.")
+            missing = []
+            if code in SORT_OPERATION_TYPES:
+                if not line.sort_type:
+                    missing.append("тип сортировки")
+                if not line.color_id:
+                    missing.append("цвет")
+                if not line.stone_size_id:
+                    missing.append("размер")
+            if code == "press":
+                if not line.stone_size_id:
+                    missing.append("размер")
+                if not line.shape_id:
+                    missing.append("форма")
+            if code in MACHINE_OPERATION_CODES:
+                if not line.stone_size_id:
+                    missing.append("размер")
+                if not line.form_type_id:
+                    missing.append("тип формы")
+                if not line.shape_id:
+                    missing.append("форма")
+            if missing:
+                raise ValidationError(
+                    f"В задаче операции {line.operation_id.display_name} заполните: {', '.join(missing)}."
+                )
+
+    def _receipt_line_values(self, lot=False, weight_before=0.0):
+        self.ensure_one()
+        return {
+            "task_line_id": self.id,
+            "lot_id": lot.id if lot else False,
+            "weight_before_g": weight_before,
+            "sort_type": self.sort_type,
+            "color_id": self.color_id.id if self.color_id else False,
+            "stone_size_id": self.stone_size_id.id if self.stone_size_id else False,
+            "shape_id": self.shape_id.id if self.shape_id else False,
+            "form_type_id": self.form_type_id.id if self.form_type_id else False,
+        }
 
 
 class CabochonProductionRequestSourceLine(models.Model):
