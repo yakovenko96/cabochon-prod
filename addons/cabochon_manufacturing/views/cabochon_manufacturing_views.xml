@@ -103,7 +103,6 @@
         <field name="model">cabochon.manufacturing.location</field>
         <field name="arch" type="xml">
             <list>
-                <field name="sequence" widget="handle"/>
                 <field name="name" width="260px"/>
                 <field name="code" width="180px"/>
                 <field name="employee_id" width="220px"/>
@@ -123,7 +122,6 @@
                         <field name="code"/>
                         <field name="employee_id" invisible="code != 'employee'"/>
                         <field name="manager_id" invisible="code == 'employee'"/>
-                        <field name="sequence"/>
                         <field name="active"/>
                     </group>
                 </sheet>
@@ -201,12 +199,77 @@
         <field name="view_mode">list,form</field>
     </record>
 
+    <record id="view_cabochon_supplier_list" model="ir.ui.view">
+        <field name="name">cabochon.supplier.list</field>
+        <field name="model">cabochon.supplier</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cabochon_supplier_form" model="ir.ui.view">
+        <field name="name">cabochon.supplier.form</field>
+        <field name="model">cabochon.supplier</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="active"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_cabochon_supplier" model="ir.actions.act_window">
+        <field name="name">Поставщики сырья</field>
+        <field name="res_model">cabochon.supplier</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="view_cabochon_finished_customer_list" model="ir.ui.view">
+        <field name="name">cabochon.finished.customer.list</field>
+        <field name="model">cabochon.finished.customer</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cabochon_finished_customer_form" model="ir.ui.view">
+        <field name="name">cabochon.finished.customer.form</field>
+        <field name="model">cabochon.finished.customer</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="active"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_cabochon_finished_customer" model="ir.actions.act_window">
+        <field name="name">Покупатели готовых изделий</field>
+        <field name="res_model">cabochon.finished.customer</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
     <record id="view_cabochon_stone_lot_search" model="ir.ui.view">
         <field name="name">cabochon.stone.lot.search</field>
         <field name="model">cabochon.stone.lot</field>
         <field name="arch" type="xml">
             <search>
                 <field name="name"/>
+                <field name="supplier_id"/>
                 <field name="supplier_name"/>
                 <field name="fraction_id"/>
                 <field name="location_id"/>
@@ -262,7 +325,8 @@
                     </div>
                     <group>
                         <group string="Поступление">
-                            <field name="supplier_name"/>
+                            <field name="supplier_id"/>
+                            <field name="supplier_name" invisible="supplier_id"/>
                             <field name="waybill_number"/>
                             <field name="receipt_date"/>
                             <field name="accepted_by_id"/>
@@ -342,7 +406,8 @@
                 <sheet>
                     <group>
                         <group>
-                            <field name="supplier_name" placeholder="Например: ИП Иванов, водитель Сергей, ООО Камень"/>
+                            <field name="supplier_id"/>
+                            <field name="supplier_name" invisible="1"/>
                             <field name="location_id"/>
                             <field name="lot_name"/>
                             <field name="initial_weight_g"/>
@@ -379,7 +444,7 @@
                 <sheet>
                     <group>
                         <group>
-                            <field name="partner_id"/>
+                            <field name="customer_id"/>
                             <field name="issue_date"/>
                         </group>
                         <group>
@@ -797,6 +862,7 @@
                             <field name="weight_before_g" invisible="transfer_type == 'issue'" readonly="state != 'draft'"/>
                             <field name="manager_confirmed_by_id" invisible="state == 'draft'"/>
                             <field name="worker_confirmed_by_id" invisible="state != 'confirmed'"/>
+                            <field name="admin_action_note" invisible="not admin_action_note"/>
                             <field name="total_weight_g"/>
                             <field name="total_defect_weight_g"/>
                             <field name="total_detected_defect_weight_g"/>
@@ -843,7 +909,7 @@
         <field name="name">Выдачи и прием от сотрудников</field>
         <field name="res_model">cabochon.material.transfer</field>
         <field name="view_mode">list,form,pivot,graph</field>
-        <field name="domain">[('manager_id.user_id', '=', uid)]</field>
+        <field name="domain">[]</field>
         <field name="search_view_id" ref="view_cabochon_transfer_search"/>
     </record>
 

@@ -24,4 +24,7 @@
 
     <menuitem id="menu_cabochon_extraction_year" name="Годы добычи" parent="cabochon_base.menu_cabochon_references" action="action_cabochon_extraction_year" sequence="10" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
     <menuitem id="menu_cabochon_fraction" name="Фракции" parent="cabochon_base.menu_cabochon_references" action="action_cabochon_fraction" sequence="15" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
+    <menuitem id="menu_cabochon_employee_operation_access" name="Допуски сотрудников" parent="cabochon_base.menu_cabochon_references" action="action_cabochon_employee_operation_access" sequence="18" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
+    <menuitem id="menu_cabochon_supplier" name="Поставщики сырья" parent="cabochon_base.menu_cabochon_references" action="action_cabochon_supplier" sequence="20" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_admin"/>
+    <menuitem id="menu_cabochon_finished_customer" name="Покупатели готовых изделий" parent="cabochon_base.menu_cabochon_references" action="action_cabochon_finished_customer" sequence="25" groups="cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
 </odoo>

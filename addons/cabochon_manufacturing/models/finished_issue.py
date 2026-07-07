@@ -9,7 +9,7 @@ class CabochonFinishedIssueWizard(models.TransientModel):
     _name = "cabochon.finished.issue.wizard"
     _description = "Продажа/выдача готовых камней"
 
-    partner_id = fields.Many2one("res.partner", string="Получатель/покупатель", ondelete="restrict")
+    customer_id = fields.Many2one("cabochon.finished.customer", string="Покупатель", ondelete="restrict")
     issue_date = fields.Datetime(string="Дата выдачи", default=fields.Datetime.now, required=True)
     manager_id = fields.Many2one(
         "hr.employee",
@@ -96,8 +96,8 @@ class CabochonFinishedIssueWizardLine(models.TransientModel):
             }
         )
         note_parts = ["Продажа/выдача готовых камней"]
-        if self.wizard_id.partner_id:
-            note_parts.append(f"получатель: {self.wizard_id.partner_id.display_name}")
+        if self.wizard_id.customer_id:
+            note_parts.append(f"покупатель: {self.wizard_id.customer_id.display_name}")
         if self.wizard_id.note:
             note_parts.append(self.wizard_id.note)
         if self.note:

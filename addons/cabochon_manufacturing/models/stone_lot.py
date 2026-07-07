@@ -54,7 +54,8 @@ class CabochonStoneLot(models.Model):
         compute="_compute_security_manager_user_ids",
         store=True,
     )
-    supplier_name = fields.Char(string="Поставщик")
+    supplier_id = fields.Many2one("cabochon.supplier", string="Поставщик", ondelete="restrict")
+    supplier_name = fields.Char(string="Поставщик (текст)")
     fraction = fields.Char(string="Фракция (текст)")
     fraction_id = fields.Many2one("cabochon.fraction", string="Фракция", ondelete="restrict")
     extraction_year = fields.Integer(string="Год добычи (число)")
@@ -113,6 +114,7 @@ class CabochonStoneLot(models.Model):
         for vals in vals_list:
             self._sync_extraction_year_values(vals)
             self._sync_fraction_values(vals)
+            self._sync_supplier_values(vals)
             self._sync_reference_values(vals)
             if vals.get("name", "Новый") == "Новый":
                 vals["name"] = sequence.next_by_code("cabochon.stone.lot") or "Новый"
@@ -142,8 +144,13 @@ class CabochonStoneLot(models.Model):
         vals = dict(vals)
         self._sync_extraction_year_values(vals)
         self._sync_fraction_values(vals)
+        self._sync_supplier_values(vals)
         self._sync_reference_values(vals)
         return super().write(vals)
+
+    @api.onchange("supplier_id")
+    def _onchange_supplier_id(self):
+        self.supplier_name = self.supplier_id.name if self.supplier_id else False
 
     @api.onchange("fraction_id")
     def _onchange_fraction_id(self):
@@ -186,6 +193,26 @@ class CabochonStoneLot(models.Model):
         fraction = str(fraction).strip()
         fraction_model = self.env["cabochon.fraction"].sudo()
         return fraction_model.search([("name", "=", fraction)], limit=1) or fraction_model.create({"name": fraction})
+
+    @api.model
+    def _sync_supplier_values(self, vals):
+        if vals.get("supplier_id"):
+            supplier = self.env["cabochon.supplier"].sudo().browse(vals["supplier_id"])
+            vals["supplier_name"] = supplier.name
+        elif vals.get("supplier_name") and not vals.get("supplier_id"):
+            vals["supplier_id"] = self._get_or_create_supplier(vals["supplier_name"]).id
+        elif "supplier_name" in vals and not vals.get("supplier_name"):
+            vals["supplier_id"] = False
+        elif "supplier_id" in vals and not vals.get("supplier_id"):
+            vals["supplier_name"] = False
+
+    @api.model
+    def _get_or_create_supplier(self, supplier_name):
+        supplier_name = str(supplier_name).strip()
+        supplier_model = self.env["cabochon.supplier"].sudo()
+        return supplier_model.search([("name", "=", supplier_name)], limit=1) or supplier_model.create(
+            {"name": supplier_name}
+        )
 
     @api.model
     def _sync_extraction_year_values(self, vals):

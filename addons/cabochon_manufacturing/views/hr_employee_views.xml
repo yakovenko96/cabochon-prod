@@ -49,7 +49,7 @@
         <field name="inherit_id" ref="hr.view_employee_form"/>
         <field name="arch" type="xml">
             <xpath expr="//notebook" position="inside">
-                <page string="Изготовление кабошонов" groups="cabochon_base.group_cabochon_admin">
+                <page string="Изготовление кабошонов" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin">
                     <group>
                         <field name="cabochon_allowed_operation_ids" widget="many2many_tags"/>
                         <field name="cabochon_active_request_count" readonly="1"/>
@@ -57,6 +57,52 @@
                 </page>
             </xpath>
         </field>
+    </record>
+
+    <record id="view_cabochon_employee_operation_access_list" model="ir.ui.view">
+        <field name="name">cabochon.employee.operation.access.list</field>
+        <field name="model">cabochon.employee.operation.access</field>
+        <field name="arch" type="xml">
+            <list create="0" delete="0">
+                <field name="name"/>
+                <field name="cabochon_allowed_operation_ids" widget="many2many_tags"/>
+                <field name="cabochon_active_request_count"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_cabochon_employee_operation_access_form" model="ir.ui.view">
+        <field name="name">cabochon.employee.operation.access.form</field>
+        <field name="model">cabochon.employee.operation.access</field>
+        <field name="arch" type="xml">
+            <form create="0" delete="0">
+                <sheet>
+                    <group>
+                        <field name="name" readonly="1"/>
+                        <field name="cabochon_allowed_operation_ids" widget="many2many_tags"/>
+                        <field name="cabochon_active_request_count" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_cabochon_employee_operation_access_search" model="ir.ui.view">
+        <field name="name">cabochon.employee.operation.access.search</field>
+        <field name="model">cabochon.employee.operation.access</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_cabochon_employee_operation_access" model="ir.actions.act_window">
+        <field name="name">Допуски сотрудников</field>
+        <field name="res_model">cabochon.employee.operation.access</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_ids" eval="[(5, 0, 0), (0, 0, {'view_mode': 'list', 'view_id': ref('view_cabochon_employee_operation_access_list')}), (0, 0, {'view_mode': 'form', 'view_id': ref('view_cabochon_employee_operation_access_form')})]"/>
+        <field name="search_view_id" ref="view_cabochon_employee_operation_access_search"/>
     </record>
 
 </odoo>

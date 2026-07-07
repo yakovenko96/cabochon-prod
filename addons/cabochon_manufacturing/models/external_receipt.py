@@ -11,7 +11,8 @@ class CabochonExternalReceiptWizard(models.TransientModel):
     _name = "cabochon.external.receipt.wizard"
     _description = "Приход внешнего мешка сырья"
 
-    supplier_name = fields.Char(string="Поставщик")
+    supplier_id = fields.Many2one("cabochon.supplier", string="Поставщик", ondelete="restrict")
+    supplier_name = fields.Char(string="Поставщик (текст)")
     location_id = fields.Many2one(
         "cabochon.manufacturing.location",
         string="Склад прихода",
@@ -57,6 +58,10 @@ class CabochonExternalReceiptWizard(models.TransientModel):
     def _onchange_fraction_id(self):
         self.fraction = self.fraction_id.name if self.fraction_id else False
 
+    @api.onchange("supplier_id")
+    def _onchange_supplier_id(self):
+        self.supplier_name = self.supplier_id.name if self.supplier_id else False
+
     def action_create_receipt(self):
         self.ensure_one()
         if float_compare(self.initial_weight_g, 0.0, precision_digits=4) <= 0:
@@ -72,6 +77,7 @@ class CabochonExternalReceiptWizard(models.TransientModel):
                 raise UserError(f"Мешок с ID {self.lot_name} уже существует.")
         lot_values = {
             "name": self.lot_name or "Новый",
+            "supplier_id": self.supplier_id.id if self.supplier_id else False,
             "supplier_name": self.supplier_name,
             "fraction": self.fraction,
             "fraction_id": self.fraction_id.id if self.fraction_id else False,

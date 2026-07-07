@@ -67,6 +67,7 @@ class CabochonMaterialTransfer(models.Model):
     worker_confirmed_by_id = fields.Many2one(
         "res.users", string="Подтвердил со стороны работника", readonly=True, copy=False
     )
+    admin_action_note = fields.Text(string="Административная отметка", readonly=True, copy=False)
     line_ids = fields.One2many("cabochon.material.transfer.line", "transfer_id", string="Строки")
     weight_before_g = fields.Float(string="Вес до операции, г", digits=WEIGHT_DIGITS)
     total_weight_g = fields.Float(string="Фактический вес, г", compute="_compute_totals", store=True, digits=WEIGHT_DIGITS)
@@ -153,7 +154,7 @@ class CabochonMaterialTransfer(models.Model):
             transfer.can_worker_confirm = bool(is_admin or transfer.worker_id.user_id == self.env.user)
 
     def write(self, vals):
-        internal_fields = {"state", "manager_confirmed_by_id", "worker_confirmed_by_id"}
+        internal_fields = {"state", "manager_confirmed_by_id", "worker_confirmed_by_id", "admin_action_note"}
         if set(vals) - internal_fields and any(record.state != "draft" for record in self):
             raise UserError("Выдачу/сдачу после подтверждения менеджером нельзя менять.")
         result = super().write(vals)
@@ -188,8 +189,13 @@ class CabochonMaterialTransfer(models.Model):
             if transfer.state != "draft":
                 continue
             transfer._validate_before_manager_confirm()
+            admin_note = transfer._admin_manager_action_note()
             transfer.with_context(cabochon_transfer_internal_update=True).write(
-                {"state": "manager_confirmed", "manager_confirmed_by_id": self.env.user.id}
+                {
+                    "state": "manager_confirmed",
+                    "manager_confirmed_by_id": self.env.user.id,
+                    "admin_action_note": transfer._append_admin_action_note(admin_note),
+                }
             )
             transfer._clear_manager_activities()
             transfer._notify_worker_activity()
@@ -204,7 +210,10 @@ class CabochonMaterialTransfer(models.Model):
                 and transfer.worker_id.user_id != self.env.user
             ):
                 raise UserError("Финально подтвердить документ может только назначенный работник или администратор.")
-            transfer.sudo().with_context(cabochon_transfer_internal_update=True)._execute_confirmed_transfer()
+            transfer.sudo().with_context(
+                cabochon_transfer_internal_update=True,
+                cabochon_admin_worker_action_note=transfer._admin_worker_action_note(),
+            )._execute_confirmed_transfer()
 
     def action_confirm(self):
         return self.action_manager_confirm()
@@ -215,10 +224,42 @@ class CabochonMaterialTransfer(models.Model):
                 transfer._confirm_issue()
             else:
                 transfer._confirm_receipt()
+            admin_note = self.env.context.get("cabochon_admin_worker_action_note")
             transfer.with_context(cabochon_transfer_internal_update=True).write(
-                {"state": "confirmed", "worker_confirmed_by_id": self.env.user.id}
+                {
+                    "state": "confirmed",
+                    "worker_confirmed_by_id": self.env.user.id,
+                    "admin_action_note": transfer._append_admin_action_note(admin_note),
+                }
             )
             transfer._clear_worker_activities()
+
+    def _admin_manager_action_note(self):
+        self.ensure_one()
+        if not self.env.user.has_group("cabochon_base.group_cabochon_admin"):
+            return False
+        if self.manager_id.user_id == self.env.user:
+            return False
+        action = "выдал материалы" if self.transfer_type == "issue" else "принял сдачу"
+        manager = self.manager_id.display_name if self.manager_id else "ответственного кладовщика"
+        return f"Администратор {self.env.user.display_name} {action} за {manager}."
+
+    def _admin_worker_action_note(self):
+        self.ensure_one()
+        if not self.env.user.has_group("cabochon_base.group_cabochon_admin"):
+            return False
+        if self.worker_id.user_id == self.env.user:
+            return False
+        action = "принял выдачу" if self.transfer_type == "issue" else "сдал материалы"
+        worker = self.worker_id.display_name if self.worker_id else "работника"
+        return f"Администратор {self.env.user.display_name} {action} за {worker}."
+
+    def _append_admin_action_note(self, note):
+        self.ensure_one()
+        if not note:
+            return self.admin_action_note
+        notes = [item for item in (self.admin_action_note, note) if item]
+        return "\n".join(notes)
 
     def _lock_for_update(self):
         self.ensure_one()
@@ -429,6 +470,7 @@ class CabochonMaterialTransfer(models.Model):
         self.ensure_one()
         values = {
             "parent_id": source_lot.id,
+            "supplier_id": source_lot.supplier_id.id if source_lot.supplier_id else False,
             "supplier_name": source_lot.supplier_name,
             "fraction": source_lot.fraction,
             "fraction_id": source_lot.fraction_id.id if source_lot.fraction_id else False,
@@ -640,6 +682,15 @@ class CabochonMaterialTransfer(models.Model):
         return lots_and_weights
 
     def _movement_values(self, line, kind, lot, weight, source_location, destination_location, new_lot=False, defect_kind=False):
+        note_parts = [
+            item
+            for item in (
+                line.note,
+                self.admin_action_note,
+                self.env.context.get("cabochon_admin_worker_action_note"),
+            )
+            if item
+        ]
         return {
             "kind": kind,
             "defect_kind": defect_kind if kind == "defect" else False,
@@ -659,6 +710,7 @@ class CabochonMaterialTransfer(models.Model):
             or (lot.current_weight_g if lot else 0.0)
             or (lot.initial_weight_g if lot else 0.0),
             "movement_date": self.transfer_date,
+            "note": "\n".join(note_parts),
             "company_id": self.company_id.id,
         }
 
@@ -1046,6 +1098,7 @@ class CabochonMaterialTransferLine(models.Model):
             if self.transfer_id.request_id
             and len(self.transfer_id.request_id.issue_id.line_ids) > 1
             else False,
+            "supplier_id": source_lot.supplier_id.id if source_lot and source_lot.supplier_id else False,
             "supplier_name": source_lot.supplier_name if source_lot else False,
             "fraction": source_lot.fraction if source_lot else False,
             "fraction_id": source_lot.fraction_id.id if source_lot and source_lot.fraction_id else False,

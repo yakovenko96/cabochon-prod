@@ -105,10 +105,38 @@ class CabochonFraction(models.Model):
     )
 
 
+class CabochonSupplier(models.Model):
+    _name = "cabochon.supplier"
+    _description = "Поставщик сырья для кабошонов"
+    _order = "name"
+
+    name = fields.Char(string="Поставщик", required=True)
+    active = fields.Boolean(default=True)
+
+    _supplier_name_unique = models.Constraint(
+        "UNIQUE(name)",
+        "Поставщик должен быть уникальным.",
+    )
+
+
+class CabochonFinishedCustomer(models.Model):
+    _name = "cabochon.finished.customer"
+    _description = "Покупатель готовых камней"
+    _order = "name"
+
+    name = fields.Char(string="Покупатель", required=True)
+    active = fields.Boolean(default=True)
+
+    _customer_name_unique = models.Constraint(
+        "UNIQUE(name)",
+        "Покупатель должен быть уникальным.",
+    )
+
+
 class CabochonManufacturingLocation(models.Model):
     _name = "cabochon.manufacturing.location"
     _description = "Складская зона изготовления кабошонов"
-    _order = "sequence, name"
+    _order = "name"
 
     name = fields.Char(string="Зона", required=True)
     code = fields.Selection(
@@ -125,7 +153,6 @@ class CabochonManufacturingLocation(models.Model):
     )
     employee_id = fields.Many2one("hr.employee", string="Работник", ondelete="restrict")
     manager_id = fields.Many2one("hr.employee", string="Ответственный менеджер", ondelete="restrict")
-    sequence = fields.Integer(default=10)
     active = fields.Boolean(default=True)
 
     _location_code_employee_unique = models.Constraint(

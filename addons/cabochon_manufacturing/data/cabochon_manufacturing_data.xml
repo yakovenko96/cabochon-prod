@@ -41,27 +41,22 @@
     <record id="location_raw" model="cabochon.manufacturing.location">
         <field name="name">Склад сырья</field>
         <field name="code">raw</field>
-        <field name="sequence">10</field>
     </record>
     <record id="location_prepared" model="cabochon.manufacturing.location">
         <field name="name">Склад подготовленного сырья</field>
         <field name="code">prepared</field>
-        <field name="sequence">20</field>
     </record>
     <record id="location_semi_finished" model="cabochon.manufacturing.location">
         <field name="name">Склад полуфабрикатов</field>
         <field name="code">semi_finished</field>
-        <field name="sequence">30</field>
     </record>
     <record id="location_finished" model="cabochon.manufacturing.location">
         <field name="name">Склад готовых камней</field>
         <field name="code">finished</field>
-        <field name="sequence">40</field>
     </record>
     <record id="location_loss" model="cabochon.manufacturing.location">
         <field name="name">Потери и списания</field>
         <field name="code">loss</field>
-        <field name="sequence">99</field>
     </record>
 
     <record id="operation_tumble_wash" model="cabochon.manufacturing.operation">
