@@ -1,7 +1,7 @@
 {
     "name": "Кабошоны: изготовление",
     "summary": "Учет партий, операций, заявок, брака и движений при изготовлении кабошонов",
-    "version": "19.0.2.17.0",
+    "version": "19.0.2.23.0",
     "category": "Manufacturing/Manufacturing",
     "author": "Cabochon Ware",
     "license": "LGPL-3",
@@ -18,6 +18,11 @@
         "views/cabochon_manufacturing_views.xml",
         "views/cabochon_manufacturing_menus.xml",
     ],
+    "assets": {
+        "web.assets_backend": [
+            "cabochon_manufacturing/static/src/scss/list_columns.scss",
+        ],
+    },
     "application": True,
     "installable": True,
     "post_init_hook": "post_init_hook",

@@ -3,6 +3,20 @@ from odoo import fields, models, tools
 WEIGHT_DIGITS = (16, 1)
 
 
+def _ensure_inventory_columns_and_indexes(cr):
+    cr.execute("ALTER TABLE cabochon_fraction ADD COLUMN IF NOT EXISTS wash_loss_percent double precision")
+    cr.execute("ALTER TABLE cabochon_stone_lot ADD COLUMN IF NOT EXISTS defect_operation_id integer")
+    cr.execute("DROP INDEX IF EXISTS cabochon_stone_lot_one_active_defect_per_location")
+    cr.execute("DROP INDEX IF EXISTS cabochon_stone_lot_one_active_defect_per_location_operation")
+    cr.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS cabochon_stone_lot_one_active_defect_per_location_operation_shape
+            ON cabochon_stone_lot (location_id, company_id, COALESCE(defect_operation_id, 0), COALESCE(shape_id, 0))
+         WHERE is_defect_lot AND state = 'available'
+        """
+    )
+
+
 class CabochonWorkerLoadReport(models.Model):
     _name = "cabochon.worker.load.report"
     _description = "Панель технолога по нагрузке сотрудников"
@@ -25,6 +39,7 @@ class CabochonWorkerLoadReport(models.Model):
 
     def init(self):
         tools.drop_view_if_exists(self.env.cr, self._table)
+        _ensure_inventory_columns_and_indexes(self.env.cr)
         self.env.cr.execute(
             """
             CREATE OR REPLACE VIEW cabochon_worker_load_report AS (
@@ -89,6 +104,7 @@ class CabochonWorkerOperationQualityReport(models.Model):
 
     def init(self):
         tools.drop_view_if_exists(self.env.cr, self._table)
+        _ensure_inventory_columns_and_indexes(self.env.cr)
         self.env.cr.execute(
             """
             CREATE OR REPLACE VIEW cabochon_worker_operation_quality_report AS (
@@ -101,51 +117,43 @@ class CabochonWorkerOperationQualityReport(models.Model):
                         ) AS operation_key,
                         COALESCE(
                             STRING_AGG(
-                                CASE operation.code
-                                    WHEN 'tumble_wash' THEN 'Помывка в галтовке'
-                                    WHEN 'toluene_wash' THEN 'Помывка в толуоле'
-                                    WHEN 'auto_separator' THEN 'Авто (сепаратор)'
-                                    WHEN 'manual_sorting' THEN 'Ручная сортировка'
-                                    WHEN 'stone_preparation' THEN 'Подготовка камня'
-                                    WHEN 'press' THEN 'Пресс'
-                                    WHEN 'normalization' THEN 'Нормализация'
-                                    WHEN 'cabochon_machine' THEN 'Кабошонерка'
-                                    WHEN 'ball_machine' THEN 'Шарокрутка'
-                                    WHEN 'cnc' THEN 'ЧПУ'
-                                    WHEN 'grinding_polishing' THEN 'Шлифовка/Полировка'
-                                    WHEN 'husking' THEN 'Лузговка'
-                                    WHEN 'sorting' THEN 'Сортировка'
-                                    WHEN 'drilling' THEN 'Сверление'
-                                    WHEN 'tinting' THEN 'Тонировка'
-                                    ELSE operation.code
-                                END,
+                                COALESCE(operation.name->>'ru_RU', operation.name->>'en_US', operation.code),
                                 ' + '
                                 ORDER BY operation.sequence, operation.code
                             ),
-                            CASE primary_operation.code
-                                WHEN 'tumble_wash' THEN 'Помывка в галтовке'
-                                WHEN 'toluene_wash' THEN 'Помывка в толуоле'
-                                WHEN 'auto_separator' THEN 'Авто (сепаратор)'
-                                WHEN 'manual_sorting' THEN 'Ручная сортировка'
-                                WHEN 'stone_preparation' THEN 'Подготовка камня'
-                                WHEN 'press' THEN 'Пресс'
-                                WHEN 'normalization' THEN 'Нормализация'
-                                WHEN 'cabochon_machine' THEN 'Кабошонерка'
-                                WHEN 'ball_machine' THEN 'Шарокрутка'
-                                WHEN 'cnc' THEN 'ЧПУ'
-                                WHEN 'grinding_polishing' THEN 'Шлифовка/Полировка'
-                                WHEN 'husking' THEN 'Лузговка'
-                                WHEN 'sorting' THEN 'Сортировка'
-                                WHEN 'drilling' THEN 'Сверление'
-                                WHEN 'tinting' THEN 'Тонировка'
-                                ELSE primary_operation.code
-                            END
+                            COALESCE(primary_operation.name->>'ru_RU', primary_operation.name->>'en_US'),
+                            primary_operation.code
                         ) AS operation_names
                     FROM cabochon_manufacturing_movement movement
                     LEFT JOIN cabochon_movement_operation_rel rel ON rel.movement_id = movement.id
                     LEFT JOIN cabochon_manufacturing_operation operation ON operation.id = rel.operation_id
                     LEFT JOIN cabochon_manufacturing_operation primary_operation ON primary_operation.id = movement.primary_operation_id
-                    GROUP BY movement.id, movement.primary_operation_id, primary_operation.code
+                    GROUP BY movement.id, movement.primary_operation_id, primary_operation.name, primary_operation.code
+                ),
+                movement_operation_norms AS (
+                    SELECT
+                        movement.id AS movement_id,
+                        CASE
+                            WHEN operation.code IN ('tumble_wash', 'toluene_wash')
+                                 AND fraction.wash_loss_percent > 0.0
+                            THEN fraction.wash_loss_percent
+                            ELSE COALESCE(operation.expected_loss_percent, 0.0)
+                        END AS norm_percent
+                    FROM cabochon_manufacturing_movement movement
+                    JOIN cabochon_movement_operation_rel rel ON rel.movement_id = movement.id
+                    JOIN cabochon_manufacturing_operation operation ON operation.id = rel.operation_id
+                    LEFT JOIN cabochon_stone_lot lot ON lot.id = movement.lot_id
+                    LEFT JOIN cabochon_fraction fraction ON fraction.id = lot.fraction_id
+                ),
+                movement_expected_loss AS (
+                    SELECT
+                        movement_id,
+                        CASE
+                            WHEN BOOL_OR(norm_percent >= 100.0) THEN 100.0
+                            ELSE (1.0 - EXP(SUM(LN(GREATEST(1.0 - norm_percent / 100.0, 0.0000000001))))) * 100.0
+                        END AS expected_loss_percent
+                    FROM movement_operation_norms
+                    GROUP BY movement_id
                 ),
                 quality AS (
                     SELECT
@@ -163,9 +171,10 @@ class CabochonWorkerOperationQualityReport(models.Model):
                         COALESCE(SUM(CASE WHEN movement.kind = 'defect' AND movement.defect_kind = 'detected' THEN movement.weight_g ELSE 0 END), 0.0) AS detected_defect_weight_g,
                         COALESCE(SUM(CASE WHEN movement.kind = 'defect' AND movement.defect_kind = 'made' THEN movement.weight_g ELSE 0 END), 0.0) AS made_defect_weight_g,
                         COALESCE(SUM(CASE WHEN movement.kind = 'loss' THEN movement.weight_g ELSE 0 END), 0.0) AS lost_weight_g,
-                        COALESCE(MAX(operation.expected_loss_percent), 0.0) AS expected_loss_percent
+                        COALESCE(MAX(movement_expected_loss.expected_loss_percent), 0.0) AS expected_loss_percent
                     FROM cabochon_manufacturing_movement movement
                     LEFT JOIN movement_operations ON movement_operations.movement_id = movement.id
+                    LEFT JOIN movement_expected_loss ON movement_expected_loss.movement_id = movement.id
                     LEFT JOIN cabochon_manufacturing_operation operation ON operation.id = movement.primary_operation_id
                     WHERE movement.worker_id IS NOT NULL
                       AND movement.primary_operation_id IS NOT NULL

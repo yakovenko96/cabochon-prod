@@ -18,6 +18,7 @@ class CabochonManufacturingMovement(models.Model):
             ("issue", "Выдача"),
             ("defect", "Брак"),
             ("loss", "Потеря"),
+            ("recovery", "Возврат брака"),
             ("correction", "Корректировка"),
         ],
         string="Вид движения",
@@ -146,14 +147,21 @@ class CabochonManufacturingMovement(models.Model):
         for movement in self:
             movement.report_lot_id = (
                 movement.new_lot_id
-                if movement.kind in ("receipt", "defect") and movement.new_lot_id
+                if movement.kind in ("receipt", "defect", "recovery") and movement.new_lot_id
                 else movement.lot_id or movement.new_lot_id
             )
 
-    @api.depends("kind", "weight_g", "source_weight_before_g", "primary_operation_id.expected_loss_percent")
+    @api.depends(
+        "kind",
+        "weight_g",
+        "source_weight_before_g",
+        "operation_ids.expected_loss_percent",
+        "lot_id.fraction_id.wash_loss_percent",
+        "new_lot_id.fraction_id.wash_loss_percent",
+    )
     def _compute_loss_quality(self):
         for movement in self:
-            norm = movement.primary_operation_id.expected_loss_percent or 0.0
+            norm = movement._combined_expected_loss_percent()
             fact = 0.0
             if movement.kind == "loss" and movement.source_weight_before_g:
                 fact = movement.weight_g / movement.source_weight_before_g * 100.0
@@ -162,6 +170,17 @@ class CabochonManufacturingMovement(models.Model):
             movement.loss_percent = fact
             movement.loss_over_norm_percent = over_norm if over_norm > 0 else 0.0
             movement.is_loss_over_norm = bool(movement.kind == "loss" and over_norm > 0)
+
+    def _combined_expected_loss_percent(self):
+        self.ensure_one()
+        remaining_factor = 1.0
+        fraction = (self.lot_id or self.new_lot_id).fraction_id
+        for operation in self.operation_ids:
+            norm = operation.expected_loss_percent or 0.0
+            if operation.code in ("tumble_wash", "toluene_wash") and fraction and fraction.wash_loss_percent:
+                norm = fraction.wash_loss_percent
+            remaining_factor *= max(0.0, 1.0 - norm / 100.0)
+        return (1.0 - remaining_factor) * 100.0
 
     def _notify_loss_over_norm(self):
         activity_type = self.env.ref("mail.mail_activity_data_todo", raise_if_not_found=False)

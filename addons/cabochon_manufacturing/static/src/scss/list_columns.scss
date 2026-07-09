@@ -1,0 +1,16 @@
+.o_list_view {
+    .o_list_table {
+        table-layout: auto !important;
+        width: max-content !important;
+        min-width: 0 !important;
+    }
+
+    .o_data_cell,
+    .o_column_sortable,
+    th,
+    td {
+        max-width: none !important;
+        width: max-content !important;
+        white-space: nowrap;
+    }
+}

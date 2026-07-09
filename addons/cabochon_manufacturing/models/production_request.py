@@ -6,7 +6,11 @@ from .constants import EXCLUSIVE_OPERATION_GROUPS, SINGLE_REQUEST_OPERATION_GROU
 
 WEIGHT_DIGITS = (16, 1)
 MACHINE_OPERATION_CODES = {"cnc", "cabochon_machine", "ball_machine"}
-TASK_OPERATION_CODES = {"press"} | MACHINE_OPERATION_CODES
+CUTTING_OPERATION_CODES = {"cutting"}
+DRILLING_OPERATION_CODES = {"drilling"}
+TUBE_OPERATION_CODES = {"tubes"}
+REPEATABLE_OPERATION_CODES = {"grinding_polishing"}
+TASK_OPERATION_CODES = {"press"} | MACHINE_OPERATION_CODES | CUTTING_OPERATION_CODES | DRILLING_OPERATION_CODES
 
 
 class CabochonProductionRequest(models.Model):
@@ -43,6 +47,7 @@ class CabochonProductionRequest(models.Model):
     sort_type = fields.Char(string="Тип сортировки")
     show_sort_type = fields.Boolean(compute="_compute_show_sort_type")
     show_task_lines = fields.Boolean(compute="_compute_show_task_lines")
+    show_tube_source_lines = fields.Boolean(compute="_compute_show_tube_source_lines")
     receipt_destination_stage = fields.Selection(
         [("semi_finished", "Склад полуфабрикатов"), ("finished", "Склад готовых камней")],
         string="Склад сдачи",
@@ -57,6 +62,14 @@ class CabochonProductionRequest(models.Model):
         required=True,
         ondelete="restrict",
         tracking=True,
+    )
+    source_lot_ids = fields.Many2many(
+        "cabochon.stone.lot",
+        string="Исходные мешки",
+        compute="_compute_source_lot_ids",
+        inverse="_inverse_source_lot_ids",
+        readonly=False,
+        compute_sudo=True,
     )
     additional_source_line_ids = fields.One2many(
         "cabochon.production.request.source.line",
@@ -164,6 +177,25 @@ class CabochonProductionRequest(models.Model):
             request.total_planned_weight_g = request.planned_weight_g + sum(
                 request.additional_source_line_ids.mapped("weight_g")
             )
+
+    @api.depends("source_lot_id", "additional_source_line_ids.lot_id")
+    def _compute_source_lot_ids(self):
+        for request in self:
+            request.source_lot_ids = request.source_lot_id | request.additional_source_line_ids.mapped("lot_id")
+
+    def _inverse_source_lot_ids(self):
+        for request in self:
+            request._sync_source_lines_from_lots()
+
+    def _sync_source_lines_from_lots(self):
+        for request in self:
+            lots = request.source_lot_ids
+            primary_lot = lots[:1]
+            request.source_lot_id = primary_lot
+            request.additional_source_line_ids = [(5, 0, 0)] + [
+                (0, 0, {"lot_id": lot.id, "weight_g": lot.current_weight_g})
+                for lot in lots[1:]
+            ]
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -331,6 +363,11 @@ class CabochonProductionRequest(models.Model):
         for request in self:
             request.show_task_lines = bool(set(request.operation_ids.mapped("code")) & TASK_OPERATION_CODES)
 
+    @api.depends("operation_ids.code")
+    def _compute_show_tube_source_lines(self):
+        for request in self:
+            request.show_tube_source_lines = "tubes" in request.operation_ids.mapped("code")
+
     @api.depends("operation_ids.final_operation")
     def _compute_show_receipt_destination_stage(self):
         for request in self:
@@ -375,10 +412,29 @@ class CabochonProductionRequest(models.Model):
             return [("active", "=", True)]
         return [("id", "in", self.eligible_operation_ids.ids)]
 
+    @api.onchange("source_lot_ids")
+    def _onchange_source_lot_ids(self):
+        self._sync_source_lines_from_lots()
+        if self.source_lot_id:
+            if not self.planned_weight_g:
+                self.planned_weight_g = self.source_lot_id.current_weight_g
+            self.operation_ids = self.operation_ids.filtered(lambda operation: operation in self.eligible_operation_ids)
+            self._normalize_selected_operations()
+            self._set_sort_type_from_operations()
+            self._set_default_receipt_destination_stage()
+        return {
+            "domain": {
+                "operation_ids": self._operation_selection_domain(),
+                "source_lot_ids": [("id", "in", self.eligible_lot_ids.ids)],
+            }
+        }
+
     @api.onchange("source_lot_id")
     def _onchange_source_lot_id(self):
         if self.source_lot_id:
-            self.planned_weight_g = self.source_lot_id.current_weight_g
+            self.source_lot_ids = self.source_lot_id | self.additional_source_line_ids.mapped("lot_id")
+            if not self.planned_weight_g:
+                self.planned_weight_g = self.source_lot_id.current_weight_g
             self.operation_ids = self.operation_ids.filtered(lambda operation: operation in self.eligible_operation_ids)
             self._normalize_selected_operations()
             self._set_sort_type_from_operations()
@@ -387,6 +443,7 @@ class CabochonProductionRequest(models.Model):
             "domain": {
                 "operation_ids": self._operation_selection_domain(),
                 "source_lot_id": [("id", "in", self.eligible_lot_ids.ids)],
+                "source_lot_ids": [("id", "in", self.eligible_lot_ids.ids)],
             }
         }
 
@@ -401,6 +458,7 @@ class CabochonProductionRequest(models.Model):
                 "domain": {
                     "operation_ids": self._operation_selection_domain(),
                     "source_lot_id": [("id", "in", self.eligible_lot_ids.ids)],
+                    "source_lot_ids": [("id", "in", self.eligible_lot_ids.ids)],
                 }
             }
         required_operation_ids = set(self.operation_ids.ids)
@@ -411,6 +469,7 @@ class CabochonProductionRequest(models.Model):
             "domain": {
                 "operation_ids": self._operation_selection_domain(),
                 "source_lot_id": [("id", "in", self.eligible_lot_ids.ids)],
+                "source_lot_ids": [("id", "in", self.eligible_lot_ids.ids)],
             }
         }
 
@@ -466,8 +525,23 @@ class CabochonProductionRequest(models.Model):
             all_source_lots = request.source_lot_id | request.additional_source_line_ids.mapped("lot_id")
             if len(all_source_lots) != 1 + len(request.additional_source_line_ids):
                 raise ValidationError("Один мешок нельзя добавить в заявку дважды.")
-            if request.additional_source_line_ids and "press" not in request.operation_ids.mapped("code"):
-                raise ValidationError("Несколько исходных мешков разрешены только для операции пресса.")
+            operation_codes = set(request.operation_ids.mapped("code"))
+            if request.additional_source_line_ids and not (operation_codes & ({"press"} | TUBE_OPERATION_CODES)):
+                raise ValidationError("Несколько исходных мешков разрешены только для пресса или операции труб.")
+            if request.additional_source_line_ids and operation_codes & TUBE_OPERATION_CODES:
+                if len(request.additional_source_line_ids) > 1:
+                    raise ValidationError("Для операции труб можно добавить только один дополнительный мешок.")
+                source_year_id = request.source_lot_id.extraction_year_id.id
+                source_year = request.source_lot_id.extraction_year
+                source_month = request.source_lot_id.extraction_month
+                different_period_lots = request.additional_source_line_ids.mapped("lot_id").filtered(
+                    lambda lot, year_id=source_year_id, year=source_year, month=source_month: (
+                        lot.extraction_year_id.id != year_id if year_id or lot.extraction_year_id else lot.extraction_year != year
+                    )
+                    or lot.extraction_month != month
+                )
+                if different_period_lots:
+                    raise ValidationError("Для операции труб исходные мешки должны быть одного года и месяца добычи.")
             route_error_lots = all_source_lots.filtered(
                 lambda lot, operations=request.operation_ids: not lot._is_operation_route_allowed(operations)
             )
@@ -476,9 +550,16 @@ class CabochonProductionRequest(models.Model):
             allowed_ids = set(request.worker_id.sudo().cabochon_allowed_operation_ids.ids)
             if request.operation_ids and not set(request.operation_ids.ids).issubset(allowed_ids):
                 raise ValidationError("Работник не допущен ко всем операциям заявки.")
-            completed_operation_ids = request.source_lot_id._completed_operation_ids() if request.source_lot_id else set()
+            completed_operation_ids = (
+                set()
+                if request.source_lot_id.is_return_loss_lot
+                else request.source_lot_id._completed_operation_ids()
+                if request.source_lot_id
+                else set()
+            )
             repeated_operations = request.operation_ids.filtered(
                 lambda operation, done=completed_operation_ids: operation.id in done
+                and operation.code not in REPEATABLE_OPERATION_CODES
             )
             if repeated_operations:
                 operation_names = ", ".join(repeated_operations.mapped("display_name"))
@@ -487,7 +568,11 @@ class CabochonProductionRequest(models.Model):
                 )
             route_error = request._operation_route_error(
                 request.operation_ids,
-                request.source_lot_id._completed_operation_codes() if request.source_lot_id else set(),
+                set()
+                if request.source_lot_id.is_return_loss_lot
+                else request.source_lot_id._completed_operation_codes()
+                if request.source_lot_id
+                else set(),
             )
             if route_error:
                 raise ValidationError(route_error)
@@ -500,7 +585,7 @@ class CabochonProductionRequest(models.Model):
         if not codes:
             return False
         selected_codes = set(codes)
-        repeated_codes = selected_codes & completed_codes
+        repeated_codes = (selected_codes & completed_codes) - REPEATABLE_OPERATION_CODES
         if repeated_codes:
             names = ", ".join(
                 self.env["cabochon.manufacturing.operation"].sudo().search([("code", "in", list(repeated_codes))]).mapped("name")
@@ -525,14 +610,17 @@ class CabochonProductionRequest(models.Model):
                     self.env["cabochon.manufacturing.operation"].sudo().search([("code", "in", list(group))]).mapped("name")
                 )
                 return f"Эти операции выполняют разные сотрудники, выберите только одну операцию в заявке: {names}."
+        tube_codes = {"tubes"}
+        if tube_codes & selected_codes and (completed_codes or (selected_codes - tube_codes)):
+            return "Операция Трубы выполняется отдельным первым этапом перед всеми остальными операциями."
         wash_codes = {"tumble_wash", "toluene_wash"}
         sorting_codes = {"manual_sorting", "auto_separator"}
         if not enforce_prerequisites:
             return False
-        non_wash_codes = selected_codes - wash_codes
+        non_wash_codes = selected_codes - wash_codes - tube_codes
         if non_wash_codes and not ((completed_codes | selected_codes) & wash_codes):
             return "Перед другими операциями мешок должен пройти помывку в галтовке или толуоле."
-        after_sort_codes = selected_codes - wash_codes - sorting_codes
+        after_sort_codes = selected_codes - wash_codes - sorting_codes - tube_codes
         if after_sort_codes and not ((completed_codes | selected_codes) & sorting_codes):
             return "Перед дальнейшими операциями мешок должен пройти ручную сортировку или авто-сепаратор."
         return False
@@ -619,9 +707,9 @@ class CabochonProductionRequest(models.Model):
 
     def _start_next_operation_line(self, started_at=False):
         for request in self:
-            line = request.operation_line_ids.filtered(lambda item: item.state == "pending").sorted("sequence")[:1]
-            if line:
-                line.action_start(started_at=started_at)
+            lines = request.operation_line_ids.filtered(lambda item: item.state == "pending").sorted("sequence")
+            if lines:
+                lines.action_start(started_at=started_at)
 
     def _finish_open_operation_lines(self, finished_at=False):
         for request in self:
@@ -741,8 +829,11 @@ class CabochonProductionRequest(models.Model):
 
     def _ensure_receipt_transfer(self, issue_lines=None):
         self.ensure_one()
+        exclude_transfer_id = self.env.context.get("exclude_receipt_transfer_id")
         existing = self.receipt_ids.filtered(
-            lambda item: item.transfer_type == "receipt" and item.state in ("draft", "manager_confirmed")
+            lambda item: item.transfer_type == "receipt"
+            and item.state in ("draft", "manager_confirmed")
+            and item.id != exclude_transfer_id
         )
         if existing:
             receipt = existing[:1]
@@ -803,7 +894,6 @@ class CabochonProductionRequest(models.Model):
                 {
                     "lot_id": lot.id,
                     "weight_before_g": weight,
-                    "sort_type": self.sort_type,
                 },
             )
             for lot, weight in (issue_lines or [])
@@ -814,6 +904,14 @@ class CabochonProductionRequest(models.Model):
         weights = [weight for lot, weight in (issue_lines or []) if lot]
         if weights:
             return sum(weights)
+        issue_line_weights = self.issue_id.line_ids.mapped("weight_g") if self.issue_id else []
+        if issue_line_weights:
+            return sum(issue_line_weights)
+        issued_lots = self.issue_id.line_ids.mapped("lot_id").filtered(
+            lambda lot: lot.owner_employee_id == self.worker_id and lot.current_weight_g > 0
+        )
+        if issued_lots:
+            return sum(issued_lots.mapped("current_weight_g"))
         return self.source_lot_id.current_weight_g or self.source_lot_id.initial_weight_g
 
 
@@ -842,12 +940,14 @@ class CabochonProductionRequestTaskLine(models.Model):
     shape_id = fields.Many2one("cabochon.shape", string="Форма", ondelete="restrict")
     form_type_id = fields.Many2one("cabochon.form.type", string="Тип формы", ondelete="restrict")
     show_sort_fields = fields.Boolean(compute="_compute_field_visibility")
+    show_tube_fields = fields.Boolean(compute="_compute_field_visibility")
     show_press_fields = fields.Boolean(compute="_compute_field_visibility")
     show_machine_fields = fields.Boolean(compute="_compute_field_visibility")
     show_color_fields = fields.Boolean(compute="_compute_field_visibility")
     show_size_fields = fields.Boolean(compute="_compute_field_visibility")
     show_shape_fields = fields.Boolean(compute="_compute_field_visibility")
     show_form_type_fields = fields.Boolean(compute="_compute_field_visibility")
+    show_cutting_fields = fields.Boolean(compute="_compute_field_visibility")
     eligible_stone_size_ids = fields.Many2many(
         "cabochon.size",
         compute="_compute_eligible_reference_ids",
@@ -881,11 +981,20 @@ class CabochonProductionRequestTaskLine(models.Model):
         for line in self:
             code = line.operation_id.code
             line.show_sort_fields = code in SORT_OPERATION_TYPES
+            line.show_tube_fields = code in TUBE_OPERATION_CODES
             line.show_press_fields = code == "press"
             line.show_machine_fields = code in MACHINE_OPERATION_CODES
+            line.show_cutting_fields = code in CUTTING_OPERATION_CODES
             line.show_color_fields = line.show_sort_fields
-            line.show_size_fields = line.show_sort_fields or line.show_press_fields or line.show_machine_fields
-            line.show_shape_fields = line.show_press_fields or line.show_machine_fields
+            line.show_size_fields = (
+                line.show_sort_fields
+                or line.show_tube_fields
+                or line.show_press_fields
+                or line.show_machine_fields
+                or line.show_cutting_fields
+                or code in DRILLING_OPERATION_CODES
+            )
+            line.show_shape_fields = line.show_press_fields or line.show_machine_fields or line.show_cutting_fields
             line.show_form_type_fields = line.show_machine_fields
 
     @api.depends("operation_id.code")
@@ -899,12 +1008,19 @@ class CabochonProductionRequestTaskLine(models.Model):
             shape_flags = []
             if code in SORT_OPERATION_TYPES:
                 size_flags.append("use_for_sorting")
+            if code in TUBE_OPERATION_CODES:
+                size_flags.append("use_for_tubes")
             if code == "press":
                 size_flags.append("use_for_press")
                 shape_flags.append("use_for_press")
+            if code in CUTTING_OPERATION_CODES:
+                size_flags.append("use_for_cutting")
+                shape_flags.append("use_for_cutting")
             if code in MACHINE_OPERATION_CODES:
                 size_flags.append("use_for_machine")
                 shape_flags.append("use_for_machine")
+            if code in DRILLING_OPERATION_CODES:
+                size_flags.append("use_for_drilling")
             line.eligible_stone_size_ids = self._eligible_reference_records(size_model, size_flags)
             line.eligible_shape_ids = self._eligible_reference_records(shape_model, shape_flags)
             line.eligible_form_type_ids = form_type_model.search([("active", "=", True)])
@@ -927,7 +1043,6 @@ class CabochonProductionRequestTaskLine(models.Model):
     @api.constrains(
         "request_id",
         "operation_id",
-        "sort_type",
         "color_id",
         "stone_size_id",
         "shape_id",
@@ -942,12 +1057,12 @@ class CabochonProductionRequestTaskLine(models.Model):
                 raise ValidationError("Задачи добавляются только для операций со справочниками.")
             missing = []
             if code in SORT_OPERATION_TYPES:
-                if not line.sort_type:
-                    missing.append("тип сортировки")
                 if not line.color_id:
                     missing.append("цвет")
                 if not line.stone_size_id:
                     missing.append("размер")
+            if code in TUBE_OPERATION_CODES and not line.stone_size_id:
+                missing.append("размер трубы")
             if code == "press":
                 if not line.stone_size_id:
                     missing.append("размер")
@@ -960,6 +1075,13 @@ class CabochonProductionRequestTaskLine(models.Model):
                     missing.append("тип формы")
                 if not line.shape_id:
                     missing.append("форма")
+            if code in CUTTING_OPERATION_CODES:
+                if not line.stone_size_id:
+                    missing.append("размер")
+                if not line.shape_id:
+                    missing.append("форма")
+            if code in DRILLING_OPERATION_CODES and not line.stone_size_id:
+                missing.append("диаметр отверстия")
             if missing:
                 raise ValidationError(
                     f"В задаче операции {line.operation_id.display_name} заполните: {', '.join(missing)}."
@@ -971,8 +1093,7 @@ class CabochonProductionRequestTaskLine(models.Model):
             "task_line_id": self.id,
             "lot_id": lot.id if lot else False,
             "weight_before_g": weight_before,
-            "sort_type": self.sort_type,
-            "color_id": self.color_id.id if self.color_id else False,
+            "color_id": self.color_id.id if self.color_id else lot.color_id.id if lot and lot.color_id else False,
             "stone_size_id": self.stone_size_id.id if self.stone_size_id else False,
             "shape_id": self.shape_id.id if self.shape_id else False,
             "form_type_id": self.form_type_id.id if self.form_type_id else False,
@@ -1044,18 +1165,29 @@ class CabochonProductionRequestOperationLine(models.Model):
     )
     started_at = fields.Datetime(string="Начало")
     finished_at = fields.Datetime(string="Окончание")
-    duration_hours = fields.Float(string="Время, ч", compute="_compute_duration_hours", store=True)
+    duration_hours = fields.Float(string="Время, ч", compute="_compute_duration_hours")
+    received_weight_g = fields.Float(string="Фактически сдано, г", compute="_compute_received_weight_g", digits=WEIGHT_DIGITS)
     worker_id = fields.Many2one("hr.employee", string="Работник", related="request_id.worker_id", store=True)
     company_id = fields.Many2one("res.company", string="Компания", related="request_id.company_id", store=True)
     note = fields.Text(string="Комментарий")
 
     @api.depends("started_at", "finished_at")
     def _compute_duration_hours(self):
+        now = fields.Datetime.now()
         for line in self:
-            if line.started_at and line.finished_at:
-                line.duration_hours = (line.finished_at - line.started_at).total_seconds() / 3600.0
+            end_at = line.finished_at or now
+            if line.started_at and end_at:
+                line.duration_hours = (end_at - line.started_at).total_seconds() / 3600.0
             else:
                 line.duration_hours = 0.0
+
+    @api.depends("request_id.movement_ids.kind", "request_id.movement_ids.weight_g", "request_id.movement_ids.operation_ids")
+    def _compute_received_weight_g(self):
+        for line in self:
+            movements = line.request_id.movement_ids.filtered(
+                lambda movement, operation=line.operation_id: movement.kind == "receipt" and operation in movement.operation_ids
+            )
+            line.received_weight_g = sum(movements.mapped("weight_g"))
 
     def action_start(self, started_at=False):
         started_at = started_at or fields.Datetime.now()

@@ -59,6 +59,13 @@
         <field name="code">loss</field>
     </record>
 
+    <record id="operation_tubes" model="cabochon.manufacturing.operation">
+        <field name="name">Трубы</field>
+        <field name="code">tubes</field>
+        <field name="sequence">5</field>
+        <field name="warehouse_stage">prepared</field>
+    </record>
+
     <record id="operation_tumble_wash" model="cabochon.manufacturing.operation">
         <field name="name">Помывка в галтовке</field>
         <field name="code">tumble_wash</field>
@@ -154,5 +161,31 @@
         <field name="sequence">150</field>
         <field name="warehouse_stage">semi_finished</field>
         <field name="final_operation">1</field>
+    </record>
+    <record id="operation_auto_separator" model="cabochon.manufacturing.operation">
+        <field name="name">Фото-сепаратор</field>
+    </record>
+
+    <record id="operation_cutting" model="cabochon.manufacturing.operation">
+        <field name="name">Раскрой</field>
+        <field name="code">cutting</field>
+        <field name="sequence">55</field>
+        <field name="warehouse_stage">semi_finished</field>
+    </record>
+
+    <record id="size_tube_thin" model="cabochon.size">
+        <field name="name">Тонкий</field>
+        <field name="size">Тонкий</field>
+        <field name="use_for_tubes">1</field>
+    </record>
+    <record id="size_tube_medium" model="cabochon.size">
+        <field name="name">Средний</field>
+        <field name="size">Средний</field>
+        <field name="use_for_tubes">1</field>
+    </record>
+    <record id="size_tube_thick" model="cabochon.size">
+        <field name="name">Толстый</field>
+        <field name="size">Толстый</field>
+        <field name="use_for_tubes">1</field>
     </record>
 </odoo>

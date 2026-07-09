@@ -22,14 +22,11 @@ DEFECT_LOT_SUFFIX_BY_LOCATION_CODE = {
 
 EXCLUSIVE_OPERATION_GROUPS = (
     {"tumble_wash", "toluene_wash"},
-    {"manual_sorting", "auto_separator"},
     {"press", "stone_preparation"},
     {"ball_machine", "cabochon_machine", "cnc"},
 )
 
-SINGLE_REQUEST_OPERATION_GROUPS = (
-    {"grinding_polishing", "husking", "drilling", "tinting"},
-)
+SINGLE_REQUEST_OPERATION_GROUPS = ()
 
 SORT_OPERATION_TYPES = {
     "manual_sorting": "Ручная",
@@ -37,11 +34,13 @@ SORT_OPERATION_TYPES = {
 }
 
 OPERATION_CODE_SUFFIXES = {
+    "tubes": "TUBE",
     "tumble_wash": "WASH",
     "toluene_wash": "TLN",
     "manual_sorting": "SORT-M",
-    "auto_separator": "SORT-A",
+    "auto_separator": "SORT-P",
     "stone_preparation": "PREP",
+    "cutting": "CUT",
     "press": "PRS",
     "normalization": "NORM",
     "cabochon_machine": "CAB",

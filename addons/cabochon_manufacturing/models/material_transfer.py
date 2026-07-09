@@ -9,6 +9,9 @@ from .constants import (
 )
 
 MACHINE_OPERATION_CODES = {"cnc", "cabochon_machine", "ball_machine"}
+RETURN_LOSS_OPERATION_CODES = {"cnc", "stone_preparation", "cabochon_machine"}
+CUTTING_OPERATION_CODES = {"cutting"}
+TUBE_OPERATION_CODES = {"tubes"}
 WEIGHT_DIGITS = (16, 1)
 
 
@@ -79,13 +82,20 @@ class CabochonMaterialTransfer(models.Model):
         string="Сделанный брак, г", compute="_compute_totals", store=True, digits=WEIGHT_DIGITS
     )
     total_lost_weight_g = fields.Float(string="Потери, г", compute="_compute_totals", store=True, digits=WEIGHT_DIGITS)
+    total_return_loss_weight_g = fields.Float(
+        string="Возвратные потери, г", compute="_compute_totals", store=True, digits=WEIGHT_DIGITS
+    )
+    is_final_receipt = fields.Boolean(string="Окончательная сдача")
     show_sort_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
+    show_tube_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
     show_press_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
     show_machine_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
     show_color_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
     show_size_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
     show_shape_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
     show_form_type_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
+    show_cutting_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
+    show_return_loss_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
     can_worker_confirm = fields.Boolean(compute="_compute_can_worker_confirm")
     company_id = fields.Many2one(
         "res.company",
@@ -115,6 +125,7 @@ class CabochonMaterialTransfer(models.Model):
         "line_ids.detected_defect_weight_g",
         "line_ids.made_defect_weight_g",
         "line_ids.lost_weight_g",
+        "line_ids.return_loss_weight_g",
     )
     def _compute_totals(self):
         for transfer in self:
@@ -123,6 +134,7 @@ class CabochonMaterialTransfer(models.Model):
             transfer.total_detected_defect_weight_g = sum(transfer.line_ids.mapped("detected_defect_weight_g"))
             transfer.total_made_defect_weight_g = sum(transfer.line_ids.mapped("made_defect_weight_g"))
             transfer.total_lost_weight_g = sum(transfer.line_ids.mapped("lost_weight_g"))
+            transfer.total_return_loss_weight_g = sum(transfer.line_ids.mapped("return_loss_weight_g"))
 
     @api.depends("state")
     def _compute_state_order(self):
@@ -140,12 +152,22 @@ class CabochonMaterialTransfer(models.Model):
             codes = set(transfer.operation_ids.mapped("code"))
             is_receipt = transfer.transfer_type == "receipt"
             transfer.show_sort_fields = is_receipt and bool(codes & {"manual_sorting", "auto_separator"})
+            transfer.show_tube_fields = is_receipt and bool(codes & TUBE_OPERATION_CODES)
             transfer.show_press_fields = is_receipt and "press" in codes
             transfer.show_machine_fields = is_receipt and bool(codes & MACHINE_OPERATION_CODES)
+            transfer.show_cutting_fields = is_receipt and bool(codes & CUTTING_OPERATION_CODES)
             transfer.show_color_fields = transfer.show_sort_fields
-            transfer.show_size_fields = transfer.show_sort_fields or transfer.show_press_fields or transfer.show_machine_fields
-            transfer.show_shape_fields = transfer.show_press_fields or transfer.show_machine_fields
+            transfer.show_size_fields = (
+                transfer.show_sort_fields
+                or transfer.show_tube_fields
+                or transfer.show_press_fields
+                or transfer.show_machine_fields
+                or transfer.show_cutting_fields
+                or "drilling" in codes
+            )
+            transfer.show_shape_fields = transfer.show_press_fields or transfer.show_machine_fields or transfer.show_cutting_fields
             transfer.show_form_type_fields = transfer.show_machine_fields
+            transfer.show_return_loss_fields = is_receipt and bool(codes & RETURN_LOSS_OPERATION_CODES)
 
     @api.depends_context("uid")
     def _compute_can_worker_confirm(self):
@@ -371,7 +393,10 @@ class CabochonMaterialTransfer(models.Model):
             raise UserError("Подтвердить документ может только назначенный менеджер склада или администратор.")
         if self.transfer_type != "issue":
             self._set_receipt_loss_weights()
-        for line in self.line_ids.with_context(skip_receipt_auto_loss=True):
+        validation_lines = self.line_ids if self.transfer_type == "issue" else self._active_receipt_line_ids()
+        if self.transfer_type != "issue" and not validation_lines:
+            raise UserError("В сдаче укажите хотя бы одну строку с годным весом, браком или возвратными потерями.")
+        for line in validation_lines.with_context(skip_receipt_auto_loss=True):
             line._validate_amounts()
         if self.transfer_type == "issue":
             lot_ids = self.line_ids.mapped("lot_id").ids
@@ -384,22 +409,34 @@ class CabochonMaterialTransfer(models.Model):
                 raise UserError("Все мешки выдачи должны находиться на складе назначенного менеджера.")
             if self.request_id:
                 overweight_lines = self.line_ids.filtered(
-                    lambda line: line.lot_id == self.request_id.source_lot_id
-                    and float_compare(
-                        line.weight_g,
-                        self.request_id.planned_weight_g,
-                        precision_digits=4,
-                    )
+                    lambda line: float_compare(line.weight_g, self._planned_issue_weight_for_line(line), precision_digits=4)
                     > 0
                 )
                 if overweight_lines:
                     raise UserError("Фактический вес выдачи не может превышать вес, заявленный технологом.")
         else:
-            foreign_lots = self.line_ids.mapped("lot_id").filtered(
+            foreign_lots = validation_lines.mapped("lot_id").filtered(
                 lambda lot: lot.owner_employee_id and lot.owner_employee_id != self.worker_id
             )
             if foreign_lots:
                 raise UserError("Работник может сдавать только мешки, выданные ему.")
+
+    def _active_receipt_line_ids(self):
+        self.ensure_one()
+        if self.transfer_type == "issue":
+            return self.line_ids
+        return self.line_ids.filtered(
+            lambda line: any(
+                not float_is_zero(line[field_name], precision_digits=4)
+                for field_name in (
+                    "weight_g",
+                    "detected_defect_weight_g",
+                    "made_defect_weight_g",
+                    "return_loss_weight_g",
+                    "lost_weight_g",
+                )
+            )
+        )
 
     def _confirm_issue(self):
         employee_location = self._get_employee_location(self.worker_id)
@@ -417,13 +454,17 @@ class CabochonMaterialTransfer(models.Model):
                 raise UserError(f"В мешке {lot.display_name} недостаточно веса.")
             source_location = lot.location_id
             issued_lot = lot
-            declared_weight = line.weight_g
-            if self.request_id and lot == self.request_id.source_lot_id:
-                declared_weight = self.request_id.planned_weight_g
-                if float_compare(lot.current_weight_g, declared_weight, precision_digits=4) < 0:
-                    raise UserError(f"В мешке {lot.display_name} меньше заявленного технологом веса.")
-            regular_remaining_weight = lot.current_weight_g - declared_weight
-            inventory_difference_weight = declared_weight - line.weight_g
+            planned_weight = self._planned_issue_weight_for_line(line)
+            planned_weight = planned_weight or line.weight_g
+            if float_compare(lot.current_weight_g, planned_weight, precision_digits=4) < 0:
+                raise UserError(f"В мешке {lot.display_name} меньше заявленного технологом веса.")
+            full_lot_requested = float_compare(planned_weight, lot.current_weight_g, precision_digits=4) >= 0
+            if full_lot_requested:
+                regular_remaining_weight = 0.0
+                inventory_difference_weight = lot.current_weight_g - line.weight_g
+            else:
+                regular_remaining_weight = lot.current_weight_g - line.weight_g
+                inventory_difference_weight = 0.0
             if float_compare(regular_remaining_weight, 0.0, precision_digits=4) > 0:
                 self._create_remaining_lot(lot, regular_remaining_weight, source_location)
             if float_compare(inventory_difference_weight, 0.0, precision_digits=4) > 0:
@@ -458,6 +499,15 @@ class CabochonMaterialTransfer(models.Model):
             self.request_id.sudo()._start_next_operation_line(now)
             self.request_id.sudo()._ensure_receipt_transfer(issue_lines=issued_lines)
 
+    def _planned_issue_weight_for_line(self, line):
+        self.ensure_one()
+        if not self.request_id or not line.lot_id:
+            return line.weight_g
+        if line.lot_id == self.request_id.source_lot_id:
+            return self.request_id.planned_weight_g
+        source_line = self.request_id.additional_source_line_ids.filtered(lambda item: item.lot_id == line.lot_id)[:1]
+        return source_line.weight_g if source_line else line.weight_g
+
     def _create_remaining_lot(
         self,
         source_lot,
@@ -491,6 +541,10 @@ class CabochonMaterialTransfer(models.Model):
             "shape": source_lot.shape,
             "form_type_id": source_lot.form_type_id.id if source_lot.form_type_id else False,
             "form_type": source_lot.form_type,
+            "is_return_loss_lot": source_lot.is_return_loss_lot,
+            "return_loss_operation_id": source_lot.return_loss_operation_id.id
+            if source_lot.return_loss_operation_id
+            else False,
             "is_defect_lot": source_lot.is_defect_lot,
             "state": state,
             "company_id": self.company_id.id,
@@ -529,9 +583,10 @@ class CabochonMaterialTransfer(models.Model):
             source_lot.invalidate_recordset(["current_weight_g", "state"])
             if float_compare(source_lot.current_weight_g, consumed_weight, precision_digits=4) < 0:
                 raise UserError(f"В мешке {source_lot.display_name} недостаточно веса для сдачи.")
-        for line in self.line_ids:
+        active_lines = self._active_receipt_line_ids()
+        for line in active_lines:
             source_lot = line.sudo().lot_id or self.request_id.sudo().source_lot_id
-            consumed_weight = line.weight_g + line.defect_weight_g + line.lost_weight_g
+            consumed_weight = line.weight_g + line.defect_weight_g + line.return_loss_weight_g + line.lost_weight_g
             new_lot = line._create_received_lot(destination)
             line.with_context(cabochon_transfer_internal_update=True).new_lot_id = new_lot
             if line.weight_g:
@@ -539,7 +594,7 @@ class CabochonMaterialTransfer(models.Model):
                     self._movement_values(line, "receipt", source_lot, line.weight_g, source_location, destination, new_lot)
                 )
             if line.detected_defect_weight_g:
-                defect_lot = line._add_to_defect_lot(defect_destination, line.detected_defect_weight_g)
+                defect_lot = line._add_to_defect_lot(defect_destination, line.detected_defect_weight_g, source_lot)
                 self.env["cabochon.manufacturing.movement"].sudo().create(
                     self._movement_values(
                         line,
@@ -553,7 +608,7 @@ class CabochonMaterialTransfer(models.Model):
                     )
                 )
             if line.made_defect_weight_g:
-                defect_lot = line._add_to_defect_lot(defect_destination, line.made_defect_weight_g)
+                defect_lot = line._add_to_defect_lot(defect_destination, line.made_defect_weight_g, source_lot)
                 self.env["cabochon.manufacturing.movement"].sudo().create(
                     self._movement_values(
                         line,
@@ -570,10 +625,26 @@ class CabochonMaterialTransfer(models.Model):
                 self.env["cabochon.manufacturing.movement"].sudo().create(
                     self._movement_values(line, "loss", source_lot, line.lost_weight_g, source_location, loss_destination)
                 )
+            if line.return_loss_weight_g:
+                return_loss_lot = line._add_to_return_loss_lot(loss_destination, line.return_loss_weight_g, source_lot)
+                self.env["cabochon.manufacturing.movement"].sudo().create(
+                    self._movement_values(
+                        line,
+                        "loss",
+                        source_lot,
+                        line.return_loss_weight_g,
+                        source_location,
+                        loss_destination,
+                        return_loss_lot,
+                    )
+                )
             self._consume_receipt_line_source_lots(line, consumed_weight)
         if self.request_id and self.request_id.state in ("in_progress", "partially_done"):
-            self.request_id.sudo()._finish_open_operation_lines(self.transfer_date)
-            close_request = self.primary_operation_id.code in ("tumble_wash", "toluene_wash")
+            close_request = self.is_final_receipt or self.primary_operation_id.code in ("tumble_wash", "toluene_wash")
+            if close_request:
+                self.request_id.sudo()._finish_open_operation_lines(self.transfer_date)
+            else:
+                self.request_id.sudo()._start_next_operation_line(self.request_id.started_at or self.transfer_date)
             self.request_id.sudo().write(
                 {
                     "state": "done" if close_request else "partially_done",
@@ -585,6 +656,8 @@ class CabochonMaterialTransfer(models.Model):
             if close_request:
                 self.request_id.sudo()._clear_overdue_activities()
                 self.request_id.sudo()._clear_loss_over_norm_activities()
+            else:
+                self.request_id.sudo().with_context(exclude_receipt_transfer_id=self.id)._ensure_receipt_transfer()
 
     def _set_receipt_loss_weights(self):
         self.ensure_one()
@@ -593,7 +666,18 @@ class CabochonMaterialTransfer(models.Model):
         if not self.weight_before_g:
             self.weight_before_g = self._default_weight_before()
         grouped_lines = {}
-        for line in self.line_ids:
+        lines_to_process = self.line_ids.filtered(
+            lambda line: any(
+                not float_is_zero(line[field_name], precision_digits=4)
+                for field_name in (
+                    "weight_g",
+                    "detected_defect_weight_g",
+                    "made_defect_weight_g",
+                    "return_loss_weight_g",
+                )
+            )
+        )
+        for line in lines_to_process:
             source_lot = line.sudo().lot_id or self.request_id.sudo().source_lot_id
             source_lot_id = source_lot.id if source_lot else False
             grouped_lines.setdefault(source_lot_id, self.env["cabochon.material.transfer.line"])
@@ -602,21 +686,27 @@ class CabochonMaterialTransfer(models.Model):
             source_lot = self.env["cabochon.stone.lot"].sudo().browse(source_lot_id)
             if not source_lot:
                 for line in lines:
-                    line.lost_weight_g = line._auto_loss_weight()
+                    line.lost_weight_g = line._auto_loss_weight() if self.is_final_receipt else 0.0
                 continue
             input_weight = self.weight_before_g if len(grouped_lines) == 1 else 0.0
-            input_weight = input_weight or max(lines.mapped("weight_before_g")) or source_lot.current_weight_g
+            input_weight = (
+                input_weight
+                or max(lines.mapped("weight_before_g"))
+                or self._issued_weight_for_lot(source_lot)
+                or source_lot.current_weight_g
+            )
             if not input_weight:
                 input_weight = source_lot.initial_weight_g
             for line in lines.filtered(lambda item: not item.weight_before_g):
                 line.weight_before_g = input_weight
             good_weight = sum(lines.mapped("weight_g"))
             defect_weight = sum(lines.mapped("defect_weight_g"))
-            if float_compare(good_weight + defect_weight, input_weight, precision_digits=4) > 0:
+            return_loss_weight = sum(lines.mapped("return_loss_weight_g"))
+            if float_compare(good_weight + defect_weight + return_loss_weight, input_weight, precision_digits=4) > 0:
                 raise UserError(
                     f"По мешку {source_lot.display_name} сумма годного веса и брака не может быть больше веса на входе."
                 )
-            loss_weight = input_weight - good_weight - defect_weight
+            loss_weight = input_weight - good_weight - defect_weight - return_loss_weight if self.is_final_receipt else 0.0
             if float_compare(loss_weight, 0.0, precision_digits=4) < 0:
                 loss_weight = 0.0
             for line in lines:
@@ -627,8 +717,9 @@ class CabochonMaterialTransfer(models.Model):
     def _receipt_consumed_weight_by_lot(self):
         self.ensure_one()
         consumed_weight_by_lot = {}
-        for line in self.line_ids:
-            consumed_weight = line.weight_g + line.defect_weight_g + line.lost_weight_g
+        active_lines = self._active_receipt_line_ids()
+        for line in active_lines:
+            consumed_weight = line.weight_g + line.defect_weight_g + line.return_loss_weight_g + line.lost_weight_g
             mixed_lots = self._mixed_issue_lots_for_receipt_line(line)
             if mixed_lots:
                 for source_lot, weight in self._distributed_consumed_weights(mixed_lots, consumed_weight):
@@ -716,12 +807,24 @@ class CabochonMaterialTransfer(models.Model):
 
     def _default_weight_before(self):
         self.ensure_one()
+        issued_weight = self._issued_weight_for_lot()
+        if issued_weight:
+            return issued_weight
         lot = self.request_id.source_lot_id
         if not lot:
             lot = self.line_ids[:1].lot_id
         if not lot:
             return 0.0
         return lot.current_weight_g or lot.initial_weight_g
+
+    def _issued_weight_for_lot(self, lot=False):
+        self.ensure_one()
+        if not self.request_id or not self.request_id.issue_id:
+            return 0.0
+        issue_lines = self.request_id.issue_id.line_ids
+        if lot:
+            issue_lines = issue_lines.filtered(lambda line: line.lot_id == lot)
+        return sum(issue_lines.mapped("weight_g"))
 
     def _get_employee_location(self, employee):
         location = self.env["cabochon.manufacturing.location"].sudo().search(
@@ -812,6 +915,7 @@ class CabochonMaterialTransferLine(models.Model):
         string="Брак итого, г", compute="_compute_defect_weight_g", store=True, readonly=False, digits=WEIGHT_DIGITS
     )
     lost_weight_g = fields.Float(string="Потери, г", digits=WEIGHT_DIGITS)
+    return_loss_weight_g = fields.Float(string="Возвратные потери, г", digits=WEIGHT_DIGITS)
     sort_type = fields.Char(string="Тип сортировки")
     color_id = fields.Many2one("cabochon.color", string="Цвет", ondelete="restrict")
     stone_size_id = fields.Many2one("cabochon.size", string="Размер", ondelete="restrict")
@@ -858,12 +962,19 @@ class CabochonMaterialTransferLine(models.Model):
             shape_flags = []
             if codes & {"manual_sorting", "auto_separator"}:
                 size_flags.append("use_for_sorting")
+            if codes & TUBE_OPERATION_CODES:
+                size_flags.append("use_for_tubes")
             if "press" in codes:
                 size_flags.append("use_for_press")
                 shape_flags.append("use_for_press")
+            if codes & CUTTING_OPERATION_CODES:
+                size_flags.append("use_for_cutting")
+                shape_flags.append("use_for_cutting")
             if codes & MACHINE_OPERATION_CODES:
                 size_flags.append("use_for_machine")
                 shape_flags.append("use_for_machine")
+            if "drilling" in codes:
+                size_flags.append("use_for_drilling")
             line.eligible_stone_size_ids = self._eligible_reference_records(size_model, size_flags)
             line.eligible_shape_ids = self._eligible_reference_records(shape_model, shape_flags)
             line.eligible_form_type_ids = form_type_model.search([("active", "=", True)])
@@ -933,7 +1044,12 @@ class CabochonMaterialTransferLine(models.Model):
     @api.onchange("lot_id")
     def _onchange_lot_id(self):
         if self.transfer_type != "issue" and self.lot_id and not self.weight_before_g:
-            self.weight_before_g = self.transfer_id.weight_before_g or self.lot_id.current_weight_g or self.lot_id.initial_weight_g
+            self.weight_before_g = (
+                self.transfer_id._issued_weight_for_lot(self.lot_id)
+                or self.transfer_id.weight_before_g
+                or self.lot_id.current_weight_g
+                or self.lot_id.initial_weight_g
+            )
         self._onchange_receipt_weights()
 
     @api.onchange("transfer_id")
@@ -944,10 +1060,10 @@ class CabochonMaterialTransferLine(models.Model):
             if not self[field_name]:
                 self[field_name] = value
 
-    @api.onchange("weight_before_g", "weight_g", "detected_defect_weight_g", "made_defect_weight_g")
+    @api.onchange("weight_before_g", "weight_g", "detected_defect_weight_g", "made_defect_weight_g", "return_loss_weight_g")
     def _onchange_receipt_weights(self):
         if self.transfer_type != "issue":
-            self.lost_weight_g = self._auto_loss_weight()
+            self.lost_weight_g = self._auto_loss_weight() if self.transfer_id.is_final_receipt else 0.0
 
     @api.model
     def _add_receipt_defaults(self, vals, transfer):
@@ -957,7 +1073,15 @@ class CabochonMaterialTransferLine(models.Model):
             lot = transfer.line_ids[:1].lot_id or transfer.request_id.source_lot_id
             if lot:
                 vals["lot_id"] = lot.id
-                vals.setdefault("weight_before_g", transfer.weight_before_g or lot.current_weight_g or lot.initial_weight_g)
+                vals.setdefault(
+                    "weight_before_g",
+                    transfer._issued_weight_for_lot(lot)
+                    or transfer.weight_before_g
+                    or lot.current_weight_g
+                    or lot.initial_weight_g,
+                )
+                if transfer.show_color_fields and lot.color_id and not vals.get("color_id"):
+                    vals["color_id"] = lot.color_id.id
         operation_code = transfer.primary_operation_id.code if transfer.primary_operation_id else False
         if operation_code in SORT_OPERATION_TYPES and not vals.get("sort_type"):
             vals["sort_type"] = SORT_OPERATION_TYPES[operation_code]
@@ -983,7 +1107,7 @@ class CabochonMaterialTransferLine(models.Model):
         weight_before = self.weight_before_g or 0.0
         if float_is_zero(weight_before, precision_digits=4):
             return self.lost_weight_g
-        loss = weight_before - (self.weight_g or 0.0) - (self.defect_weight_g or 0.0)
+        loss = weight_before - (self.weight_g or 0.0) - (self.defect_weight_g or 0.0) - (self.return_loss_weight_g or 0.0)
         return loss if float_compare(loss, 0.0, precision_digits=4) > 0 else 0.0
 
     @api.model
@@ -997,11 +1121,13 @@ class CabochonMaterialTransferLine(models.Model):
     def _set_auto_loss_weight(self):
         for line in self:
             if line.transfer_type != "issue" and not line.env.context.get("skip_receipt_auto_loss"):
-                line.lost_weight_g = line._auto_loss_weight()
+                line.lost_weight_g = line._auto_loss_weight() if line.transfer_id.is_final_receipt else 0.0
 
     @api.model
     def _loss_trigger_fields(self, vals):
-        return bool({"lot_id", "weight_before_g", "weight_g", "detected_defect_weight_g", "made_defect_weight_g"}.intersection(vals))
+        return bool(
+            {"lot_id", "weight_before_g", "weight_g", "detected_defect_weight_g", "made_defect_weight_g", "return_loss_weight_g"}.intersection(vals)
+        )
 
     def _add_auto_loss_to_values(self, vals):
         transfer = self.transfer_id
@@ -1015,7 +1141,8 @@ class CabochonMaterialTransferLine(models.Model):
             weight_before = transfer.weight_before_g
         if not weight_before and vals.get("lot_id"):
             lot = self.env["cabochon.stone.lot"].sudo().browse(vals["lot_id"])
-            weight_before = lot.current_weight_g or lot.initial_weight_g
+            weight_before = transfer._issued_weight_for_lot(lot) if transfer else 0.0
+            weight_before = weight_before or lot.current_weight_g or lot.initial_weight_g
             vals.setdefault("weight_before_g", weight_before)
         if not weight_before:
             return
@@ -1023,14 +1150,18 @@ class CabochonMaterialTransferLine(models.Model):
         detected_defect = vals.get("detected_defect_weight_g", self.detected_defect_weight_g) or 0.0
         made_defect = vals.get("made_defect_weight_g", self.made_defect_weight_g) or 0.0
         defect = detected_defect + made_defect
-        loss = weight_before - weight - defect
+        return_loss = vals.get("return_loss_weight_g", self.return_loss_weight_g) or 0.0
+        if not transfer.is_final_receipt:
+            vals["lost_weight_g"] = 0.0
+            return
+        loss = weight_before - weight - defect - return_loss
         vals["lost_weight_g"] = loss if float_compare(loss, 0.0, precision_digits=4) > 0 else 0.0
 
     def _validate_amounts(self):
         self.ensure_one()
         if not self.env.context.get("skip_receipt_auto_loss"):
             self._set_auto_loss_weight()
-        for field_name in ("weight_g", "detected_defect_weight_g", "made_defect_weight_g", "lost_weight_g"):
+        for field_name in ("weight_g", "detected_defect_weight_g", "made_defect_weight_g", "return_loss_weight_g", "lost_weight_g"):
             if float_compare(self[field_name], 0.0, precision_digits=4) < 0:
                 raise UserError("Вес не может быть отрицательным.")
         if self.transfer_type == "issue" and not self.lot_id:
@@ -1039,30 +1170,32 @@ class CabochonMaterialTransferLine(models.Model):
             raise UserError("В строке выдачи укажите вес.")
         if self.transfer_type != "issue" and all(
             float_is_zero(self[field_name], precision_digits=4)
-            for field_name in ("weight_g", "defect_weight_g", "lost_weight_g")
+            for field_name in ("weight_g", "defect_weight_g", "return_loss_weight_g", "lost_weight_g")
         ):
             raise UserError("В строке сдачи укажите годный вес, брак или потери.")
         if self.transfer_type != "issue" and self.weight_before_g:
-            consumed_weight = self.weight_g + self.defect_weight_g + self.lost_weight_g
+            consumed_weight = self.weight_g + self.defect_weight_g + self.return_loss_weight_g + self.lost_weight_g
             if float_compare(consumed_weight, self.weight_before_g, precision_digits=4) > 0:
                 raise UserError("Сумма годного веса, брака и потерь не может быть больше исходного веса.")
+        if self.return_loss_weight_g and not (set(self.transfer_id.operation_ids.mapped("code")) & RETURN_LOSS_OPERATION_CODES):
+            raise UserError("Возвратные потери можно указывать только для ЧПУ, подготовки камня и кабошонерки.")
         if self.transfer_type == "receipt":
             self._validate_required_receipt_attributes()
 
     def _validate_required_receipt_attributes(self):
         self.ensure_one()
         operation_code = self.transfer_id.primary_operation_id.code if self.transfer_id.primary_operation_id else False
+        operation_codes = set(self.transfer_id.operation_ids.mapped("code"))
         if operation_code in ("manual_sorting", "auto_separator"):
             missing = []
-            if not self.sort_type:
-                missing.append("тип сортировки")
             if not self.color_id:
                 missing.append("цвет")
             if not self.stone_size_id:
                 missing.append("размер")
             if missing:
                 raise UserError(f"Для сдачи после сортировки заполните: {', '.join(missing)}.")
-        operation_codes = set(self.transfer_id.operation_ids.mapped("code"))
+        if operation_codes & TUBE_OPERATION_CODES and not self.stone_size_id:
+            raise UserError("Для сдачи после операции Трубы заполните размер трубы.")
         if "press" in operation_codes:
             missing = []
             if not self.shape_id:
@@ -1083,6 +1216,17 @@ class CabochonMaterialTransferLine(models.Model):
                 raise UserError(
                     f"Для сдачи после ЧПУ, кабошонерки или шарокрутки заполните: {', '.join(missing)}."
                 )
+
+        if operation_codes & CUTTING_OPERATION_CODES:
+            missing = []
+            if not self.shape_id:
+                missing.append("форма")
+            if not self.stone_size_id:
+                missing.append("размер")
+            if missing:
+                raise UserError(f"Для сдачи после раскроя заполните: {', '.join(missing)}.")
+        if "drilling" in operation_codes and not self.stone_size_id:
+            raise UserError("Для сдачи после сверления заполните диаметр отверстия.")
 
     def _create_received_lot(self, destination):
         self.ensure_one()
@@ -1153,20 +1297,24 @@ class CabochonMaterialTransferLine(models.Model):
             domain.append((field_name, "=", value or False))
         return self.env["cabochon.stone.lot"].sudo().search(domain, order="id", limit=1)
 
-    def _add_to_defect_lot(self, destination, weight_g):
+    def _add_to_defect_lot(self, destination, weight_g, source_lot=False):
         self.ensure_one()
         if float_is_zero(weight_g, precision_digits=4):
             return self.env["cabochon.stone.lot"]
+        operation = self.transfer_id.primary_operation_id
+        shape = self.shape_id or (source_lot.shape_id if source_lot else False)
         lot_model = self.env["cabochon.stone.lot"].sudo()
         self.env.cr.execute(
             "SELECT pg_advisory_xact_lock(%s, %s)",
-            [destination.id, self.transfer_id.company_id.id],
+            [operation.id if operation else 0, shape.id if shape else 0],
         )
         defect_lot = lot_model.search(
             [
                 ("location_id", "=", destination.id),
                 ("company_id", "=", self.transfer_id.company_id.id),
                 ("is_defect_lot", "=", True),
+                ("defect_operation_id", "=", operation.id if operation else False),
+                ("shape_id", "=", shape.id if shape else False),
                 ("state", "=", "available"),
             ],
             order="id",
@@ -1185,14 +1333,70 @@ class CabochonMaterialTransferLine(models.Model):
             destination.code,
             destination.code.upper(),
         )
-        name = f"БРАК-{location_suffix}"
+        operation_suffix = OPERATION_CODE_SUFFIXES.get(operation.code, operation.code.upper()) if operation else "NO-OP"
+        shape_suffix = shape.name if shape else "NO-SHAPE"
+        name = f"БРАК-{location_suffix}-{operation_suffix}-{shape_suffix}"
         values = {
             "name": name,
             "accepted_by_id": self.transfer_id.manager_id.id if self.transfer_id.manager_id else False,
             "location_id": destination.id,
             "initial_weight_g": weight_g,
             "current_weight_g": weight_g,
+            "shape_id": shape.id if shape else False,
+            "shape": shape.name if shape else False,
             "is_defect_lot": True,
+            "defect_operation_id": operation.id if operation else False,
+            "company_id": self.transfer_id.company_id.id,
+        }
+        return lot_model.with_context(skip_initial_lot_movement=True).create(values)
+
+    def _add_to_return_loss_lot(self, destination, weight_g, source_lot=False):
+        self.ensure_one()
+        if float_is_zero(weight_g, precision_digits=4):
+            return self.env["cabochon.stone.lot"]
+        operation = self.transfer_id.primary_operation_id
+        if not operation or operation.code not in RETURN_LOSS_OPERATION_CODES:
+            return self.env["cabochon.stone.lot"]
+        color = self.color_id or (source_lot.color_id if source_lot else False)
+        lot_model = self.env["cabochon.stone.lot"].sudo()
+        lock_color_id = color.id if color else 0
+        self.env.cr.execute(
+            "SELECT pg_advisory_xact_lock(%s, %s)",
+            [operation.id, lock_color_id],
+        )
+        return_loss_lot = lot_model.search(
+            [
+                ("location_id", "=", destination.id),
+                ("company_id", "=", self.transfer_id.company_id.id),
+                ("is_return_loss_lot", "=", True),
+                ("return_loss_operation_id", "=", operation.id),
+                ("color_id", "=", color.id if color else False),
+                ("state", "=", "available"),
+            ],
+            order="id",
+            limit=1,
+        )
+        if return_loss_lot:
+            return_loss_lot.invalidate_recordset(["initial_weight_g", "current_weight_g"])
+            return_loss_lot.with_context(cabochon_inventory_movement=True).write(
+                {
+                    "initial_weight_g": return_loss_lot.initial_weight_g + weight_g,
+                    "current_weight_g": return_loss_lot.current_weight_g + weight_g,
+                }
+            )
+            return return_loss_lot
+        operation_suffix = OPERATION_CODE_SUFFIXES.get(operation.code, operation.code.upper())
+        color_name = color.name if color else "NO-COLOR"
+        values = {
+            "name": f"RETURN-{operation_suffix}-{color_name}",
+            "accepted_by_id": self.transfer_id.manager_id.id if self.transfer_id.manager_id else False,
+            "location_id": destination.id,
+            "initial_weight_g": weight_g,
+            "current_weight_g": weight_g,
+            "color_id": color.id if color else False,
+            "color": color.name if color else False,
+            "is_return_loss_lot": True,
+            "return_loss_operation_id": operation.id,
             "company_id": self.transfer_id.company_id.id,
         }
         return lot_model.with_context(skip_initial_lot_movement=True).create(values)

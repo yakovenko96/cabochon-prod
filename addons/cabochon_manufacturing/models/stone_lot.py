@@ -75,18 +75,29 @@ class CabochonStoneLot(models.Model):
         ondelete="restrict",
         tracking=True,
     )
-    owner_employee_id = fields.Many2one("hr.employee", string="На руках у работника", ondelete="restrict", tracking=True)
+    owner_employee_id = fields.Many2one("hr.employee", string="На руках", ondelete="restrict", tracking=True)
     initial_weight_g = fields.Float(string="Начальный вес, г", digits=WEIGHT_DIGITS, required=True)
     current_weight_g = fields.Float(string="Текущий вес, г", digits=WEIGHT_DIGITS, required=True, tracking=True)
     color_id = fields.Many2one("cabochon.color", string="Цвет", ondelete="restrict")
     stone_size_id = fields.Many2one("cabochon.size", string="Размер", ondelete="restrict")
     shape_id = fields.Many2one("cabochon.shape", string="Форма", ondelete="restrict")
     form_type_id = fields.Many2one("cabochon.form.type", string="Тип формы", ondelete="restrict")
+    return_loss_operation_id = fields.Many2one(
+        "cabochon.manufacturing.operation",
+        string="Операция возвратных потерь",
+        ondelete="restrict",
+    )
+    defect_operation_id = fields.Many2one(
+        "cabochon.manufacturing.operation",
+        string="Операция брака",
+        ondelete="restrict",
+    )
     color = fields.Char(string="Цвет (текст)")
     stone_size = fields.Char(string="Размер (текст)")
     shape = fields.Char(string="Форма (текст)")
     form_type = fields.Char(string="Тип формы (текст)")
     is_defect_lot = fields.Boolean(string="Бракованный мешок")
+    is_return_loss_lot = fields.Boolean(string="Сводный мешок возвратных потерь")
     state = fields.Selection(
         [
             ("available", "На складе"),
@@ -263,11 +274,13 @@ class CabochonStoneLot(models.Model):
 
     def _create_initial_receipt_movements(self):
         movement_model = self.env["cabochon.manufacturing.movement"]
+        operation_ids = self.env.context.get("cabochon_initial_operation_ids") or []
         for lot in self.filtered(lambda item: not item.parent_id):
             movement_model.sudo().create(
                 {
                     "kind": "receipt",
                     "new_lot_id": lot.id,
+                    "operation_ids": [(6, 0, operation_ids)],
                     "destination_location_id": lot.location_id.id,
                     "manager_id": lot.accepted_by_id.id if lot.accepted_by_id else False,
                     "weight_g": lot.initial_weight_g,
@@ -328,6 +341,21 @@ class CabochonStoneLot(models.Model):
             },
         }
 
+    def action_open_defect_recovery_wizard(self):
+        self.ensure_one()
+        if not self.is_defect_lot:
+            raise UserError("Обратное преобразование доступно только для сводных мешков брака.")
+        return {
+            "type": "ir.actions.act_window",
+            "name": "Возврат брака в полуфабрикаты",
+            "res_model": "cabochon.defect.recovery.wizard",
+            "view_mode": "form",
+            "target": "new",
+            "context": {
+                "default_defect_lot_id": self.id,
+            },
+        }
+
     def _compute_route_movement_ids(self):
         movement_model = self.env["cabochon.manufacturing.movement"].sudo()
         for lot in self:
@@ -356,7 +384,7 @@ class CabochonStoneLot(models.Model):
         lot_ids = self._lineage_lot_ids()
         movements = self.env["cabochon.manufacturing.movement"].sudo().search(
             [
-                ("kind", "in", ("receipt", "defect", "loss")),
+                ("kind", "in", ("receipt", "defect", "loss", "recovery")),
                 "|",
                 "|",
                 ("lot_id", "in", lot_ids),
@@ -375,6 +403,8 @@ class CabochonStoneLot(models.Model):
 
     def _is_operation_route_allowed(self, operations):
         self.ensure_one()
+        if self.is_return_loss_lot:
+            return True
         completed_codes = self._completed_operation_codes()
         return self.env["cabochon.production.request"]._operation_route_error(operations, completed_codes) is False
 

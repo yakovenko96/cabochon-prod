@@ -1,8 +1,18 @@
 def _create_inventory_indexes(cr):
     cr.execute(
         """
-        CREATE UNIQUE INDEX IF NOT EXISTS cabochon_stone_lot_one_active_defect_per_location
-            ON cabochon_stone_lot (location_id, company_id)
+        DROP INDEX IF EXISTS cabochon_stone_lot_one_active_defect_per_location
+        """
+    )
+    cr.execute(
+        """
+        DROP INDEX IF EXISTS cabochon_stone_lot_one_active_defect_per_location_operation
+        """
+    )
+    cr.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS cabochon_stone_lot_one_active_defect_per_location_operation_shape
+            ON cabochon_stone_lot (location_id, company_id, COALESCE(defect_operation_id, 0), COALESCE(shape_id, 0))
          WHERE is_defect_lot AND state = 'available'
         """
     )
