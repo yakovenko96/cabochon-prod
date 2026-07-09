@@ -1,20 +1,47 @@
 from odoo import fields, models, tools
 
 WEIGHT_DIGITS = (16, 1)
+WORKER_LOAD_REPORT_TABLES = ("cabochon_production_request",)
+WORKER_OPERATION_QUALITY_REPORT_TABLES = (
+    "cabochon_manufacturing_movement",
+    "cabochon_movement_operation_rel",
+    "cabochon_manufacturing_operation",
+    "cabochon_stone_lot",
+    "cabochon_fraction",
+)
 
 
 def _ensure_inventory_columns_and_indexes(cr):
+    if not _table_exists(cr, "cabochon_fraction") or not _table_exists(cr, "cabochon_stone_lot"):
+        return
     cr.execute("ALTER TABLE cabochon_fraction ADD COLUMN IF NOT EXISTS wash_loss_percent double precision")
     cr.execute("ALTER TABLE cabochon_stone_lot ADD COLUMN IF NOT EXISTS defect_operation_id integer")
     cr.execute("DROP INDEX IF EXISTS cabochon_stone_lot_one_active_defect_per_location")
     cr.execute("DROP INDEX IF EXISTS cabochon_stone_lot_one_active_defect_per_location_operation")
+    cr.execute("DROP INDEX IF EXISTS cabochon_stone_lot_one_active_defect_per_location_operation_shape")
     cr.execute(
         """
-        CREATE UNIQUE INDEX IF NOT EXISTS cabochon_stone_lot_one_active_defect_per_location_operation_shape
-            ON cabochon_stone_lot (location_id, company_id, COALESCE(defect_operation_id, 0), COALESCE(shape_id, 0))
+        CREATE UNIQUE INDEX IF NOT EXISTS cabochon_stone_lot_one_active_defect_per_attributes
+            ON cabochon_stone_lot (
+                location_id,
+                company_id,
+                COALESCE(defect_operation_id, 0),
+                COALESCE(shape_id, 0),
+                COALESCE(form_type_id, 0),
+                COALESCE(color_id, 0)
+            )
          WHERE is_defect_lot AND state = 'available'
         """
     )
+
+
+def _table_exists(cr, table_name):
+    cr.execute("SELECT to_regclass(%s)", [table_name])
+    return bool(cr.fetchone()[0])
+
+
+def _tables_exist(cr, table_names):
+    return all(_table_exists(cr, table_name) for table_name in table_names)
 
 
 class CabochonWorkerLoadReport(models.Model):
@@ -38,8 +65,10 @@ class CabochonWorkerLoadReport(models.Model):
     last_activity_at = fields.Datetime(string="Последняя активность", readonly=True)
 
     def init(self):
-        tools.drop_view_if_exists(self.env.cr, self._table)
         _ensure_inventory_columns_and_indexes(self.env.cr)
+        if not _tables_exist(self.env.cr, WORKER_LOAD_REPORT_TABLES):
+            return
+        tools.drop_view_if_exists(self.env.cr, self._table)
         self.env.cr.execute(
             """
             CREATE OR REPLACE VIEW cabochon_worker_load_report AS (
@@ -103,8 +132,10 @@ class CabochonWorkerOperationQualityReport(models.Model):
     max_loss_percent = fields.Float(string="Максимальные потери, %", readonly=True, aggregator="max")
 
     def init(self):
-        tools.drop_view_if_exists(self.env.cr, self._table)
         _ensure_inventory_columns_and_indexes(self.env.cr)
+        if not _tables_exist(self.env.cr, WORKER_OPERATION_QUALITY_REPORT_TABLES):
+            return
+        tools.drop_view_if_exists(self.env.cr, self._table)
         self.env.cr.execute(
             """
             CREATE OR REPLACE VIEW cabochon_worker_operation_quality_report AS (

@@ -1,6 +1,6 @@
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
-from odoo.tools.float_utils import float_compare
+from odoo.tools.float_utils import float_compare, float_is_zero
 
 from .constants import EXTRACTION_MONTHS
 
@@ -39,11 +39,13 @@ class CabochonStoneLot(models.Model):
         "movement_id",
         string="История операций",
         compute="_compute_route_movement_ids",
+        compute_sudo=True,
     )
     completed_operation_ids = fields.Many2many(
         "cabochon.manufacturing.operation",
         string="Проведенные операции",
         compute="_compute_completed_operation_ids",
+        compute_sudo=True,
     )
     security_manager_user_ids = fields.Many2many(
         "res.users",
@@ -78,6 +80,11 @@ class CabochonStoneLot(models.Model):
     owner_employee_id = fields.Many2one("hr.employee", string="На руках", ondelete="restrict", tracking=True)
     initial_weight_g = fields.Float(string="Начальный вес, г", digits=WEIGHT_DIGITS, required=True)
     current_weight_g = fields.Float(string="Текущий вес, г", digits=WEIGHT_DIGITS, required=True, tracking=True)
+    estimated_quantity = fields.Float(
+        string="Расчетное количество, шт.",
+        compute="_compute_estimated_quantity",
+        digits=(16, 2),
+    )
     color_id = fields.Many2one("cabochon.color", string="Цвет", ondelete="restrict")
     stone_size_id = fields.Many2one("cabochon.size", string="Размер", ondelete="restrict")
     shape_id = fields.Many2one("cabochon.shape", string="Форма", ondelete="restrict")
@@ -310,6 +317,16 @@ class CabochonStoneLot(models.Model):
                 | lot.new_lot_transfer_line_ids.transfer_id.manager_id.user_id
             )
             lot.security_manager_user_ids = users
+
+    @api.depends("current_weight_g", "stone_size_id.standard_weight_g")
+    def _compute_estimated_quantity(self):
+        for lot in self:
+            standard_weight = lot.stone_size_id.standard_weight_g
+            lot.estimated_quantity = (
+                lot.current_weight_g / standard_weight
+                if standard_weight and not float_is_zero(standard_weight, precision_digits=4)
+                else 0.0
+            )
 
     @api.constrains("initial_weight_g", "current_weight_g", "extraction_year")
     def _check_lot_values(self):

@@ -35,7 +35,7 @@
     <record id="rule_cabochon_lot_manager_own" model="ir.rule">
         <field name="name">Cabochon lots: managed warehouse stock</field>
         <field name="model_id" ref="model_cabochon_stone_lot"/>
-        <field name="domain_force">['|', ('location_id.manager_id.user_id', '=', user.id), ('security_manager_user_ids', 'in', [user.id])]</field>
+        <field name="domain_force">[('location_id.manager_id.user_id', '=', user.id)]</field>
         <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_manager')), (4, ref('cabochon_base.group_cabochon_finished_manager'))]"/>
     </record>
 

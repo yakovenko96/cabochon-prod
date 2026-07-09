@@ -358,6 +358,7 @@
                             <field name="return_loss_operation_id"/>
                             <field name="initial_weight_g"/>
                             <field name="current_weight_g"/>
+                            <field name="estimated_quantity"/>
                         </group>
                     </group>
                     <group string="Параметры после обработки">
@@ -372,6 +373,7 @@
                                 <list>
                                     <field name="name"/>
                                     <field name="current_weight_g"/>
+                                    <field name="estimated_quantity"/>
                                     <field name="location_id"/>
                                     <field name="color_id"/>
                                     <field name="stone_size_id"/>
@@ -497,10 +499,13 @@
                             <field name="defect_lot_id"/>
                             <field name="available_weight_g"/>
                             <field name="defect_operation_id"/>
+                            <field name="color_id"/>
+                            <field name="form_type_id"/>
                             <field name="shape_id"/>
                         </group>
                         <group>
                             <field name="weight_g"/>
+                            <field name="stone_size_id" required="1"/>
                             <field name="destination_location_id" readonly="1"/>
                             <field name="manager_id"/>
                             <field name="recovery_date"/>
@@ -873,6 +878,7 @@
                     <button name="action_manager_confirm" string="Принять сдачу" type="object" class="btn-primary" invisible="state != 'draft' or transfer_type == 'issue'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
                     <button name="action_worker_confirm" string="Принять" type="object" class="btn-primary" invisible="state != 'manager_confirmed' or transfer_type != 'issue' or not can_worker_confirm" groups="cabochon_base.group_cabochon_user"/>
                     <button name="action_worker_confirm" string="Подтвердить сдачу" type="object" class="btn-primary" invisible="state != 'manager_confirmed' or transfer_type == 'issue' or not can_worker_confirm" groups="cabochon_base.group_cabochon_user"/>
+                    <button name="action_worker_reject_receipt" string="Отказаться от сдачи" type="object" invisible="state != 'manager_confirmed' or transfer_type == 'issue' or not can_worker_confirm" groups="cabochon_base.group_cabochon_user"/>
                     <field name="state" widget="statusbar"/>
                 </header>
                 <sheet>
@@ -900,7 +906,7 @@
                             <field name="can_worker_confirm" invisible="1"/>
                             <field name="transfer_date" readonly="state != 'draft'"/>
                             <field name="is_final_receipt" invisible="transfer_type == 'issue'" readonly="state != 'draft'"/>
-                            <field name="weight_before_g" invisible="transfer_type == 'issue'" readonly="state != 'draft'"/>
+                            <field name="weight_before_g" invisible="transfer_type == 'issue'" readonly="1"/>
                             <field name="manager_confirmed_by_id" invisible="state == 'draft'"/>
                             <field name="worker_confirmed_by_id" invisible="state != 'confirmed'"/>
                             <field name="admin_action_note" invisible="not admin_action_note"/>
@@ -916,7 +922,7 @@
                         <list editable="bottom" delete="1">
                             <field name="transfer_type" column_invisible="1"/>
                             <field name="lot_id"/>
-                            <field name="weight_before_g" column_invisible="1"/>
+                            <field name="weight_before_g" column_invisible="1" readonly="1"/>
                             <field name="weight_g" string="Фактический вес, г"/>
                             <field name="detected_defect_weight_g"/>
                             <field name="made_defect_weight_g"/>

@@ -38,6 +38,19 @@ class CabochonDefectRecoveryWizard(models.TransientModel):
         related="defect_lot_id.shape_id",
         readonly=True,
     )
+    form_type_id = fields.Many2one(
+        "cabochon.form.type",
+        string="Тип формы",
+        related="defect_lot_id.form_type_id",
+        readonly=True,
+    )
+    color_id = fields.Many2one(
+        "cabochon.color",
+        string="Цвет",
+        related="defect_lot_id.color_id",
+        readonly=True,
+    )
+    stone_size_id = fields.Many2one("cabochon.size", string="Размер", ondelete="restrict")
     weight_g = fields.Float(string="Вес к возврату, г", required=True, digits=WEIGHT_DIGITS)
     recovery_date = fields.Datetime(string="Дата возврата", default=fields.Datetime.now, required=True)
     manager_id = fields.Many2one(
@@ -58,7 +71,7 @@ class CabochonDefectRecoveryWizard(models.TransientModel):
         domain=[("code", "=", "semi_finished")],
         ondelete="restrict",
     )
-    new_lot_name = fields.Char(string="ID нового мешка")
+    new_lot_name = fields.Char(string="ID нового мешка", readonly=True)
     note = fields.Text(string="Комментарий")
     company_id = fields.Many2one(
         "res.company",
@@ -74,6 +87,8 @@ class CabochonDefectRecoveryWizard(models.TransientModel):
         if defect_lot_id and "weight_g" in fields_list and not values.get("weight_g"):
             lot = self.env["cabochon.stone.lot"].sudo().browse(defect_lot_id)
             values["weight_g"] = lot.current_weight_g
+            if "new_lot_name" in fields_list:
+                values["new_lot_name"] = self._next_recovered_lot_name(lot)
         return values
 
     def action_recover(self):
@@ -88,10 +103,8 @@ class CabochonDefectRecoveryWizard(models.TransientModel):
             raise UserError("Возвращать брак в полуфабрикаты может ответственный за склад полуфабрикатов или администратор.")
         if float_compare(self.weight_g, 0.0, precision_digits=4) <= 0:
             raise UserError("Вес к возврату должен быть больше нуля.")
-        if self.new_lot_name and self.env["cabochon.stone.lot"].sudo().search_count(
-            ["|", ("name", "=", self.new_lot_name), ("barcode", "=", self.new_lot_name)]
-        ):
-            raise UserError(f"Мешок с ID {self.new_lot_name} уже существует.")
+        if not self.stone_size_id:
+            raise UserError("Укажите размер нового мешка из справочника.")
         self.env.cr.execute(
             "SELECT id FROM cabochon_stone_lot WHERE id = %s FOR UPDATE",
             [defect_lot.id],
@@ -126,7 +139,7 @@ class CabochonDefectRecoveryWizard(models.TransientModel):
 
     def _create_recovered_lot(self, defect_lot, destination):
         values = {
-            "name": self.new_lot_name or self._next_recovered_lot_name(defect_lot),
+            "name": self._next_recovered_lot_name(defect_lot),
             "parent_id": defect_lot.id,
             "supplier_id": defect_lot.supplier_id.id if defect_lot.supplier_id else False,
             "supplier_name": defect_lot.supplier_name,
@@ -146,6 +159,8 @@ class CabochonDefectRecoveryWizard(models.TransientModel):
             "shape": defect_lot.shape,
             "form_type_id": defect_lot.form_type_id.id if defect_lot.form_type_id else False,
             "form_type": defect_lot.form_type,
+            "stone_size_id": self.stone_size_id.id if self.stone_size_id else False,
+            "stone_size": self.stone_size_id.name if self.stone_size_id else False,
             "company_id": self.company_id.id,
         }
         return self.env["cabochon.stone.lot"].sudo().with_context(skip_initial_lot_movement=True).create(values)

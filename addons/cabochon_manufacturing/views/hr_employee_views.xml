@@ -51,8 +51,8 @@
             <xpath expr="//notebook" position="inside">
                 <page string="Изготовление кабошонов" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin">
                     <group>
+                        <field name="cabochon_role" groups="cabochon_base.group_cabochon_admin"/>
                         <field name="cabochon_allowed_operation_ids" widget="many2many_tags"/>
-                        <field name="cabochon_active_request_count" readonly="1"/>
                     </group>
                 </page>
             </xpath>
@@ -66,7 +66,6 @@
             <list create="0" delete="0">
                 <field name="name"/>
                 <field name="cabochon_allowed_operation_ids" widget="many2many_tags"/>
-                <field name="cabochon_active_request_count"/>
             </list>
         </field>
     </record>
@@ -80,7 +79,6 @@
                     <group>
                         <field name="name" readonly="1"/>
                         <field name="cabochon_allowed_operation_ids" widget="many2many_tags"/>
-                        <field name="cabochon_active_request_count" readonly="1"/>
                     </group>
                 </sheet>
             </form>

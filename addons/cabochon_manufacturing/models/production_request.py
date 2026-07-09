@@ -526,11 +526,9 @@ class CabochonProductionRequest(models.Model):
             if len(all_source_lots) != 1 + len(request.additional_source_line_ids):
                 raise ValidationError("Один мешок нельзя добавить в заявку дважды.")
             operation_codes = set(request.operation_ids.mapped("code"))
-            if request.additional_source_line_ids and not (operation_codes & ({"press"} | TUBE_OPERATION_CODES)):
-                raise ValidationError("Несколько исходных мешков разрешены только для пресса или операции труб.")
+            if request.additional_source_line_ids and not (operation_codes & TUBE_OPERATION_CODES):
+                raise ValidationError("Несколько исходных мешков разрешены только для операции труб.")
             if request.additional_source_line_ids and operation_codes & TUBE_OPERATION_CODES:
-                if len(request.additional_source_line_ids) > 1:
-                    raise ValidationError("Для операции труб можно добавить только один дополнительный мешок.")
                 source_year_id = request.source_lot_id.extraction_year_id.id
                 source_year = request.source_lot_id.extraction_year
                 source_month = request.source_lot_id.extraction_month
@@ -874,6 +872,7 @@ class CabochonProductionRequest(models.Model):
         return location
 
     def _receipt_line_commands(self, issue_lines):
+        issue_lines = issue_lines or self._open_issue_lines_for_receipt()
         if self.task_line_ids:
             receipt_weight_before = self._receipt_weight_before(issue_lines)
             issued_pairs = [(lot, weight) for lot, weight in (issue_lines or []) if lot]
@@ -901,18 +900,32 @@ class CabochonProductionRequest(models.Model):
         ]
 
     def _receipt_weight_before(self, issue_lines):
+        issue_lines = issue_lines or self._open_issue_lines_for_receipt()
         weights = [weight for lot, weight in (issue_lines or []) if lot]
         if weights:
             return sum(weights)
+        issued_lots = self._open_issued_lots_for_receipt()
+        if issued_lots:
+            return sum(issued_lots.mapped("current_weight_g"))
         issue_line_weights = self.issue_id.line_ids.mapped("weight_g") if self.issue_id else []
         if issue_line_weights:
             return sum(issue_line_weights)
-        issued_lots = self.issue_id.line_ids.mapped("lot_id").filtered(
-            lambda lot: lot.owner_employee_id == self.worker_id and lot.current_weight_g > 0
-        )
-        if issued_lots:
-            return sum(issued_lots.mapped("current_weight_g"))
         return self.source_lot_id.current_weight_g or self.source_lot_id.initial_weight_g
+
+    def _open_issue_lines_for_receipt(self):
+        self.ensure_one()
+        return [(lot, lot.current_weight_g) for lot in self._open_issued_lots_for_receipt()]
+
+    def _open_issued_lots_for_receipt(self):
+        self.ensure_one()
+        if not self.issue_id:
+            return self.env["cabochon.stone.lot"]
+        issue_lots = self.issue_id.line_ids.mapped("new_lot_id") | self.issue_id.line_ids.mapped("lot_id")
+        return issue_lots.sudo().filtered(
+            lambda lot: lot.owner_employee_id == self.worker_id
+            and lot.state == "issued"
+            and lot.current_weight_g > 0
+        )
 
 
 class CabochonProductionRequestTaskLine(models.Model):

@@ -48,6 +48,7 @@ class CabochonSize(models.Model):
 
     name = fields.Char(string="Название", required=True, index=True)
     size = fields.Char(string="Размер")
+    standard_weight_g = fields.Float(string="Эталонный вес 1 шт., г", digits=(16, 4))
     use_for_sorting = fields.Boolean(string="Сортировка")
     use_for_tubes = fields.Boolean(string="Трубы")
     use_for_press = fields.Boolean(string="Пресс")
