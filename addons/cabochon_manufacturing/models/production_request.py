@@ -625,11 +625,18 @@ class CabochonProductionRequest(models.Model):
         sorting_codes = {"manual_sorting", "auto_separator"}
         if not enforce_prerequisites:
             return False
+        completed_after_sort_codes = completed_codes - wash_codes - sorting_codes - tube_codes
+        wash_prerequisite_completed = bool(completed_codes & (wash_codes | sorting_codes)) or bool(
+            completed_after_sort_codes
+        )
+        sorting_prerequisite_completed = bool(completed_codes & sorting_codes) or bool(
+            completed_after_sort_codes
+        )
         non_wash_codes = selected_codes - wash_codes - tube_codes
-        if non_wash_codes and not ((completed_codes | selected_codes) & wash_codes):
+        if non_wash_codes and not (wash_prerequisite_completed or selected_codes & wash_codes):
             return "Перед другими операциями мешок должен пройти помывку в галтовке или толуоле."
         after_sort_codes = selected_codes - wash_codes - sorting_codes - tube_codes
-        if after_sort_codes and not ((completed_codes | selected_codes) & sorting_codes):
+        if after_sort_codes and not (sorting_prerequisite_completed or selected_codes & sorting_codes):
             return "Перед дальнейшими операциями мешок должен пройти ручную сортировку или авто-сепаратор."
         return False
 

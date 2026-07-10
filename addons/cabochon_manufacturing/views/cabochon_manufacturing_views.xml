@@ -641,7 +641,7 @@
                         <field name="actual_duration_hours"/>
                     </group>
                     <notebook>
-                        <page string="Задачи" invisible="not show_task_lines">
+                        <page string="Задачи" invisible="not show_task_lines" autofocus="autofocus">
                             <field name="task_line_ids" readonly="state != 'draft'">
                                 <list editable="bottom">
                                     <field name="sequence" widget="handle"/>
@@ -882,8 +882,9 @@
                     <button name="action_manager_confirm" string="Выдать" type="object" class="btn-primary" invisible="state != 'draft' or transfer_type != 'issue'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
                     <button name="action_manager_confirm" string="Принять сдачу" type="object" class="btn-primary" invisible="state != 'draft' or transfer_type == 'issue'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
                     <button name="action_worker_confirm" string="Принять" type="object" class="btn-primary" invisible="state != 'manager_confirmed' or transfer_type != 'issue' or not can_worker_confirm" groups="cabochon_base.group_cabochon_user"/>
+                    <button name="action_worker_reject" string="Отказаться от выдачи" type="object" invisible="state != 'manager_confirmed' or transfer_type != 'issue' or not can_worker_confirm" groups="cabochon_base.group_cabochon_user"/>
                     <button name="action_worker_confirm" string="Подтвердить сдачу" type="object" class="btn-primary" invisible="state != 'manager_confirmed' or transfer_type == 'issue' or not can_worker_confirm" groups="cabochon_base.group_cabochon_user"/>
-                    <button name="action_worker_reject_receipt" string="Отказаться от сдачи" type="object" invisible="state != 'manager_confirmed' or transfer_type == 'issue' or not can_worker_confirm" groups="cabochon_base.group_cabochon_user"/>
+                    <button name="action_worker_reject" string="Отказаться от сдачи" type="object" invisible="state != 'manager_confirmed' or transfer_type == 'issue' or not can_worker_confirm" groups="cabochon_base.group_cabochon_user"/>
                     <field name="state" widget="statusbar"/>
                 </header>
                 <sheet>

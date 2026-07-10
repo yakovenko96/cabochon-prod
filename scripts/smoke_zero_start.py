@@ -93,6 +93,19 @@ assert semi_finished_press_wizard.show_size_fields and semi_finished_press_wizar
 assert not semi_finished_press_wizard.show_color_fields
 assert all(semi_finished_press_wizard.eligible_stone_size_ids.mapped("use_for_press"))
 assert all(semi_finished_press_wizard.eligible_shape_ids.mapped("use_for_press"))
+assert env["cabochon.production.request"]._operation_route_error(press, {"manual_sorting"}) is False
+assert env["cabochon.production.request"]._operation_route_error(press, {"tumble_wash"})
+request_form_arch = env.ref("cabochon_manufacturing.view_cabochon_request_form").arch_db
+assert 'string="Задачи"' in request_form_arch and 'autofocus="autofocus"' in request_form_arch
+
+task_for_defect = env["cabochon.production.request.task.line"].new({"operation_id": press.id})
+transfer_for_defect = env["cabochon.material.transfer"].new(
+    {"transfer_type": "receipt", "operation_ids": [(6, 0, grinding.ids)]}
+)
+line_for_defect = env["cabochon.material.transfer.line"].new(
+    {"transfer_id": transfer_for_defect, "task_line_id": task_for_defect}
+)
+assert line_for_defect._defect_operation() == press
 
 external_wizard = env["cabochon.external.receipt.wizard"].with_user(admin_user).create(
     {
@@ -126,6 +139,9 @@ assert issue and issue.transfer_type == "issue" and issue.state == "draft"
 assert request.confirmed_at and not issue.transfer_date
 issue.action_manager_confirm()
 assert issue.manager_confirmed_at and not issue.transfer_date
+issue.action_worker_reject()
+assert issue.state == "draft" and not issue.manager_confirmed_at
+issue.action_manager_confirm()
 issue.action_worker_confirm()
 assert issue.state == "confirmed" and request.state == "in_progress"
 assert issue.transfer_date and issue.worker_confirmed_at
@@ -151,6 +167,24 @@ receipt.action_worker_confirm()
 assert receipt.state == "confirmed" and request.state == "done"
 assert receipt.transfer_date and receipt.worker_confirmed_at
 assert request.first_receipt_at == receipt.transfer_date and request.closed_at == receipt.transfer_date
+
+request.sudo().write({"state": "partially_done", "closed_at": False})
+zero_receipt = env["cabochon.material.transfer"].sudo().create(
+    {
+        "transfer_type": "receipt",
+        "request_id": request.id,
+        "worker_id": worker.id,
+        "manager_id": manager.id,
+        "operation_ids": [(6, 0, [tumble_wash.id])],
+        "line_ids": [(0, 0, {"lot_id": raw_lot.id, "weight_before_g": 0.0})],
+        "company_id": company.id,
+    }
+).with_user(admin_user)
+assert zero_receipt._is_zero_closing_receipt()
+zero_receipt.action_manager_confirm()
+assert zero_receipt.is_final_receipt and zero_receipt.state == "manager_confirmed"
+zero_receipt.action_worker_confirm()
+assert zero_receipt.state == "confirmed" and request.state == "done"
 
 defect_lot = first(
     env["cabochon.stone.lot"].sudo().search(
