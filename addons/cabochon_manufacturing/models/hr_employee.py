@@ -50,15 +50,6 @@ class HrEmployee(models.Model):
         groups="cabochon_base.group_cabochon_admin",
     )
 
-    def write(self, vals):
-        if (
-            self.env.user.has_group("cabochon_base.group_cabochon_workshop_manager")
-            and not self.env.user.has_group("cabochon_base.group_cabochon_admin")
-            and set(vals) - {"cabochon_allowed_operation_ids"}
-        ):
-            raise UserError("Технолог может менять только допуски сотрудников к операциям.")
-        return super().write(vals)
-
     def _compute_cabochon_active_request_count(self):
         grouped = {
             worker.id: count

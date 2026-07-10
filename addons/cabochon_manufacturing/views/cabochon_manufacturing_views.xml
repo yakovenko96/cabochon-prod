@@ -32,7 +32,7 @@
                     <div class="page" style="font-family: 'DejaVu Sans', Arial, sans-serif; padding: 8px; width: 95mm; min-height: 138mm;">
                         <h2 style="margin: 0 0 8px 0;"><span t-field="lot.name"/></h2>
                         <div style="display: flex; gap: 24px; align-items: flex-start;">
-                            <div>
+                            <div t-if="False">
                                 <img t-att-src="'/report/barcode/QR/%s?width=180&amp;height=180' % lot.barcode" alt="QR"/>
                                 <div style="font-size: 12px; text-align: center; margin-top: 4px;" t-field="lot.barcode"/>
                             </div>
@@ -48,7 +48,7 @@
                                 <div t-if="lot.completed_operation_ids"><strong>Операции:</strong> <span t-esc="', '.join(lot.completed_operation_ids.mapped('display_name'))"/></div>
                             </div>
                         </div>
-                        <div style="margin-top: 14px;">
+                        <div t-if="False" style="margin-top: 14px;">
                             <img t-att-src="'/report/barcode/Code128/%s?width=360&amp;height=70' % lot.barcode" alt="Barcode"/>
                         </div>
                     </div>
@@ -62,7 +62,6 @@
         <field name="model">cabochon.manufacturing.operation</field>
         <field name="arch" type="xml">
             <list>
-                <field name="sequence" widget="handle"/>
                 <field name="name"/>
                 <field name="code"/>
                 <field name="warehouse_stage"/>
@@ -81,7 +80,6 @@
                     <group>
                         <field name="name"/>
                         <field name="code"/>
-                        <field name="sequence"/>
                         <field name="warehouse_stage"/>
                         <field name="final_operation"/>
                         <field name="expected_loss_percent"/>
@@ -318,7 +316,7 @@
         <field name="name">cabochon.stone.lot.form</field>
         <field name="model">cabochon.stone.lot</field>
         <field name="arch" type="xml">
-            <form create="0" edit="0" delete="0">
+            <form create="0" delete="0">
                 <header>
                     <button name="%(action_report_cabochon_lot_label)d" string="Печать этикетки" type="action"/>
                     <button name="action_open_movements" string="История маршрута" type="object" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
@@ -358,6 +356,7 @@
                             <field name="return_loss_operation_id"/>
                             <field name="initial_weight_g"/>
                             <field name="current_weight_g"/>
+                            <field name="standard_weight_g" invisible="location_id.code != 'finished'"/>
                             <field name="estimated_quantity"/>
                         </group>
                     </group>
@@ -412,6 +411,10 @@
                             <field name="show_shape_fields" invisible="1"/>
                             <field name="show_form_type_fields" invisible="1"/>
                             <field name="eligible_source_operation_ids" invisible="1"/>
+                            <field name="eligible_color_ids" invisible="1"/>
+                            <field name="eligible_stone_size_ids" invisible="1"/>
+                            <field name="eligible_shape_ids" invisible="1"/>
+                            <field name="eligible_form_type_ids" invisible="1"/>
                             <field name="supplier_id" invisible="not show_raw_fields"/>
                             <field name="supplier_name" invisible="1"/>
                             <field name="location_id"/>
@@ -424,10 +427,10 @@
                             <field name="fraction_id" invisible="not show_raw_fields"/>
                             <field name="extraction_year_id" invisible="not show_raw_fields"/>
                             <field name="extraction_month" invisible="not show_raw_fields"/>
-                            <field name="color_id" invisible="not show_color_fields"/>
-                            <field name="stone_size_id" invisible="not show_size_fields" required="show_size_fields"/>
-                            <field name="shape_id" invisible="not show_shape_fields" required="show_shape_fields"/>
-                            <field name="form_type_id" invisible="not show_form_type_fields" required="show_form_type_fields"/>
+                            <field name="color_id" invisible="not show_color_fields" required="show_color_fields" domain="[('id', 'in', eligible_color_ids)]"/>
+                            <field name="stone_size_id" invisible="not show_size_fields" required="show_size_fields" domain="[('id', 'in', eligible_stone_size_ids)]"/>
+                            <field name="shape_id" invisible="not show_shape_fields" required="show_shape_fields" domain="[('id', 'in', eligible_shape_ids)]"/>
+                            <field name="form_type_id" invisible="not show_form_type_fields" required="show_form_type_fields" domain="[('id', 'in', eligible_form_type_ids)]"/>
                         </group>
                     </group>
                     <field name="note"/>
@@ -830,6 +833,8 @@
                 <field name="manager_id"/>
                 <field name="operation_ids" widget="many2many_tags"/>
                 <field name="transfer_date"/>
+                <field name="manager_confirmed_at" optional="hide"/>
+                <field name="worker_confirmed_at" optional="hide"/>
                 <field name="state_order" column_invisible="1"/>
                 <field name="total_weight_g" sum="Фактический вес"/>
                 <field name="total_defect_weight_g" sum="Брак"/>
@@ -904,11 +909,13 @@
                             <field name="show_form_type_fields" invisible="1"/>
                             <field name="show_return_loss_fields" invisible="1"/>
                             <field name="can_worker_confirm" invisible="1"/>
-                            <field name="transfer_date" readonly="state != 'draft'"/>
+                            <field name="transfer_date"/>
                             <field name="is_final_receipt" invisible="transfer_type == 'issue'" readonly="state != 'draft'"/>
                             <field name="weight_before_g" invisible="transfer_type == 'issue'" readonly="1"/>
                             <field name="manager_confirmed_by_id" invisible="state == 'draft'"/>
+                            <field name="manager_confirmed_at" invisible="state == 'draft'"/>
                             <field name="worker_confirmed_by_id" invisible="state != 'confirmed'"/>
+                            <field name="worker_confirmed_at" invisible="state != 'confirmed'"/>
                             <field name="admin_action_note" invisible="not admin_action_note"/>
                             <field name="total_weight_g"/>
                             <field name="total_defect_weight_g"/>

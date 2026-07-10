@@ -50,7 +50,12 @@ class CabochonMaterialTransfer(models.Model):
         store=True,
         string="Операция для отчетов",
     )
-    transfer_date = fields.Datetime(string="Дата и время", default=fields.Datetime.now, required=True, tracking=True)
+    transfer_date = fields.Datetime(
+        string="Фактическая дата и время",
+        readonly=True,
+        copy=False,
+        tracking=True,
+    )
     state = fields.Selection(
         [
             ("draft", "Ожидает менеджера"),
@@ -70,6 +75,8 @@ class CabochonMaterialTransfer(models.Model):
     worker_confirmed_by_id = fields.Many2one(
         "res.users", string="Подтвердил со стороны работника", readonly=True, copy=False
     )
+    manager_confirmed_at = fields.Datetime(string="Время подтверждения складом", readonly=True, copy=False)
+    worker_confirmed_at = fields.Datetime(string="Время подтверждения работником", readonly=True, copy=False)
     admin_action_note = fields.Text(string="Административная отметка", readonly=True, copy=False)
     line_ids = fields.One2many("cabochon.material.transfer.line", "transfer_id", string="Строки")
     weight_before_g = fields.Float(string="Оставшееся сырье, г", digits=WEIGHT_DIGITS)
@@ -156,7 +163,7 @@ class CabochonMaterialTransfer(models.Model):
             transfer.show_press_fields = is_receipt and "press" in codes
             transfer.show_machine_fields = is_receipt and bool(codes & MACHINE_OPERATION_CODES)
             transfer.show_cutting_fields = is_receipt and bool(codes & CUTTING_OPERATION_CODES)
-            transfer.show_color_fields = is_receipt
+            transfer.show_color_fields = is_receipt and not transfer.show_tube_fields
             transfer.show_size_fields = (
                 transfer.show_sort_fields
                 or transfer.show_tube_fields
@@ -176,7 +183,15 @@ class CabochonMaterialTransfer(models.Model):
             transfer.can_worker_confirm = bool(is_admin or transfer.worker_id.user_id == self.env.user)
 
     def write(self, vals):
-        internal_fields = {"state", "manager_confirmed_by_id", "worker_confirmed_by_id", "admin_action_note"}
+        internal_fields = {
+            "state",
+            "transfer_date",
+            "manager_confirmed_by_id",
+            "worker_confirmed_by_id",
+            "manager_confirmed_at",
+            "worker_confirmed_at",
+            "admin_action_note",
+        }
         if set(vals) - internal_fields and any(record.state != "draft" for record in self):
             raise UserError("Выдачу/сдачу после подтверждения менеджером нельзя менять.")
         result = super().write(vals)
@@ -216,6 +231,7 @@ class CabochonMaterialTransfer(models.Model):
                 {
                     "state": "manager_confirmed",
                     "manager_confirmed_by_id": self.env.user.id,
+                    "manager_confirmed_at": fields.Datetime.now(),
                     "admin_action_note": transfer._append_admin_action_note(admin_note),
                 }
             )
@@ -251,6 +267,7 @@ class CabochonMaterialTransfer(models.Model):
                 {
                     "state": "draft",
                     "manager_confirmed_by_id": False,
+                    "manager_confirmed_at": False,
                 }
             )
             transfer._clear_worker_activities()
@@ -262,6 +279,13 @@ class CabochonMaterialTransfer(models.Model):
 
     def _execute_confirmed_transfer(self):
         for transfer in self:
+            confirmed_at = fields.Datetime.now()
+            transfer.with_context(cabochon_transfer_internal_update=True).write(
+                {
+                    "transfer_date": confirmed_at,
+                    "worker_confirmed_at": confirmed_at,
+                }
+            )
             if transfer.transfer_type == "issue":
                 transfer._confirm_issue()
             else:
@@ -1317,6 +1341,7 @@ class CabochonMaterialTransferLine(models.Model):
         if float_is_zero(self.weight_g, precision_digits=4):
             return self.env["cabochon.stone.lot"]
         source_lot = self.lot_id or self.transfer_id.request_id.source_lot_id
+        is_tube_operation = bool(set(self.transfer_id.operation_ids.mapped("code")) & TUBE_OPERATION_CODES)
         values = {
             "name": self._next_received_lot_name(source_lot),
             "parent_id": source_lot.id if source_lot else False,
@@ -1338,8 +1363,14 @@ class CabochonMaterialTransferLine(models.Model):
             "location_id": destination.id,
             "initial_weight_g": self.weight_g,
             "current_weight_g": self.weight_g,
-            "color_id": self.color_id.id if self.color_id else source_lot.color_id.id if source_lot and source_lot.color_id else False,
-            "color": self.color or (source_lot.color if source_lot else False),
+            "color_id": False
+            if is_tube_operation
+            else self.color_id.id
+            if self.color_id
+            else source_lot.color_id.id
+            if source_lot and source_lot.color_id
+            else False,
+            "color": False if is_tube_operation else self.color or (source_lot.color if source_lot else False),
             "stone_size_id": self.stone_size_id.id
             if self.stone_size_id
             else source_lot.stone_size_id.id

@@ -5,6 +5,33 @@ from odoo.tools.float_utils import float_compare
 from .constants import EXTRACTION_MONTHS
 
 WEIGHT_DIGITS = (16, 1)
+PREPARED_OPERATION_CODES = {
+    "manual_sorting",
+    "auto_separator",
+    "tubes",
+    "tumble_wash",
+    "toluene_wash",
+}
+SORT_OPERATION_CODES = {"manual_sorting", "auto_separator"}
+MACHINE_OPERATION_CODES = {"cnc", "cabochon_machine", "ball_machine"}
+SIZE_FLAG_BY_OPERATION = {
+    "manual_sorting": "use_for_sorting",
+    "auto_separator": "use_for_sorting",
+    "tubes": "use_for_tubes",
+    "press": "use_for_press",
+    "cutting": "use_for_cutting",
+    "cnc": "use_for_machine",
+    "cabochon_machine": "use_for_machine",
+    "ball_machine": "use_for_machine",
+    "drilling": "use_for_drilling",
+}
+SHAPE_FLAG_BY_OPERATION = {
+    "press": "use_for_press",
+    "cutting": "use_for_cutting",
+    "cnc": "use_for_machine",
+    "cabochon_machine": "use_for_machine",
+    "ball_machine": "use_for_machine",
+}
 
 
 class CabochonExternalReceiptWizard(models.TransientModel):
@@ -37,6 +64,10 @@ class CabochonExternalReceiptWizard(models.TransientModel):
     show_size_fields = fields.Boolean(compute="_compute_receipt_form_state")
     show_shape_fields = fields.Boolean(compute="_compute_receipt_form_state")
     show_form_type_fields = fields.Boolean(compute="_compute_receipt_form_state")
+    eligible_color_ids = fields.Many2many("cabochon.color", compute="_compute_receipt_form_state")
+    eligible_stone_size_ids = fields.Many2many("cabochon.size", compute="_compute_receipt_form_state")
+    eligible_shape_ids = fields.Many2many("cabochon.shape", compute="_compute_receipt_form_state")
+    eligible_form_type_ids = fields.Many2many("cabochon.form.type", compute="_compute_receipt_form_state")
     lot_name = fields.Char(string="ID мешка")
     fraction = fields.Char(string="Материал/фракция")
     fraction_id = fields.Many2one("cabochon.fraction", string="Фракция", ondelete="restrict")
@@ -78,8 +109,12 @@ class CabochonExternalReceiptWizard(models.TransientModel):
             location_code = wizard.location_id.code
             operation_code = wizard.source_operation_id.code
             wizard.show_raw_fields = location_code in ("raw", "prepared")
-            wizard.show_operation_fields = location_code in ("semi_finished", "finished")
-            if location_code == "semi_finished":
+            wizard.show_operation_fields = location_code in ("prepared", "semi_finished", "finished")
+            if location_code == "prepared":
+                wizard.eligible_source_operation_ids = operation_model.search(
+                    [("active", "=", True), ("code", "in", tuple(PREPARED_OPERATION_CODES))]
+                )
+            elif location_code == "semi_finished":
                 wizard.eligible_source_operation_ids = operation_model.search(
                     [("active", "=", True), ("warehouse_stage", "=", "semi_finished"), ("final_operation", "=", False)]
                 )
@@ -89,37 +124,40 @@ class CabochonExternalReceiptWizard(models.TransientModel):
                 )
             else:
                 wizard.eligible_source_operation_ids = operation_model.browse()
-            wizard.show_color_fields = location_code in ("semi_finished", "finished") or operation_code in (
-                "manual_sorting",
-                "auto_separator",
+            wizard.show_color_fields = location_code == "finished" or operation_code in SORT_OPERATION_CODES
+            wizard.show_size_fields = location_code == "finished" or operation_code in SIZE_FLAG_BY_OPERATION
+            wizard.show_shape_fields = location_code == "finished" or operation_code in SHAPE_FLAG_BY_OPERATION
+            wizard.show_form_type_fields = location_code == "finished" or operation_code in MACHINE_OPERATION_CODES
+            wizard.eligible_color_ids = self.env["cabochon.color"].sudo().search([("active", "=", True)])
+            wizard.eligible_stone_size_ids = wizard._eligible_reference_records(
+                "cabochon.size", SIZE_FLAG_BY_OPERATION.get(operation_code)
             )
-            wizard.show_size_fields = location_code == "finished" or operation_code in (
-                "manual_sorting",
-                "auto_separator",
-                "tubes",
-                "press",
-                "cutting",
-                "cnc",
-                "cabochon_machine",
-                "ball_machine",
-                "drilling",
+            wizard.eligible_shape_ids = wizard._eligible_reference_records(
+                "cabochon.shape", SHAPE_FLAG_BY_OPERATION.get(operation_code)
             )
-            wizard.show_shape_fields = location_code == "finished" or operation_code in (
-                "press",
-                "cutting",
-                "cnc",
-                "cabochon_machine",
-                "ball_machine",
-            )
-            wizard.show_form_type_fields = location_code == "finished" or operation_code in (
-                "cnc",
-                "cabochon_machine",
-                "ball_machine",
-            )
+            wizard.eligible_form_type_ids = self.env["cabochon.form.type"].sudo().search([("active", "=", True)])
+
+    def _eligible_reference_records(self, model_name, usage_flag):
+        domain = [("active", "=", True)]
+        if usage_flag:
+            domain.append((usage_flag, "=", True))
+        return self.env[model_name].sudo().search(domain)
 
     @api.onchange("location_id")
     def _onchange_location_id(self):
         self.source_operation_id = False
+
+    @api.onchange("source_operation_id")
+    def _onchange_source_operation_id(self):
+        for wizard in self:
+            if not wizard.show_color_fields or wizard.color_id not in wizard.eligible_color_ids:
+                wizard.color_id = False
+            if not wizard.show_size_fields or wizard.stone_size_id not in wizard.eligible_stone_size_ids:
+                wizard.stone_size_id = False
+            if not wizard.show_shape_fields or wizard.shape_id not in wizard.eligible_shape_ids:
+                wizard.shape_id = False
+            if not wizard.show_form_type_fields or wizard.form_type_id not in wizard.eligible_form_type_ids:
+                wizard.form_type_id = False
 
     @api.onchange("extraction_year_id")
     def _onchange_extraction_year_id(self):
@@ -140,7 +178,13 @@ class CabochonExternalReceiptWizard(models.TransientModel):
         if self.location_id not in self._available_receipt_locations():
             raise UserError("Вы можете оформлять внешний приход только на закрепленный за вами склад.")
         if self.show_operation_fields and not self.source_operation_id:
-            raise UserError("Для прихода полуфабриката или готового изделия укажите операцию происхождения.")
+            raise UserError(
+                "Для прихода подготовленного сырья, полуфабриката или готового изделия "
+                "укажите операцию происхождения."
+            )
+        if self.source_operation_id and self.source_operation_id not in self.eligible_source_operation_ids:
+            raise UserError("Выбранная операция не подходит для указанного склада прихода.")
+        self._validate_operation_attributes()
         if self.lot_name:
             existing_lot = self.env["cabochon.stone.lot"].sudo().search(
                 ["|", ("name", "=", self.lot_name), ("barcode", "=", self.lot_name)],
@@ -181,4 +225,18 @@ class CabochonExternalReceiptWizard(models.TransientModel):
             "view_mode": "form",
             "target": "current",
         }
+
+    def _validate_operation_attributes(self):
+        self.ensure_one()
+        missing = []
+        if self.show_color_fields and not self.color_id:
+            missing.append("цвет")
+        if self.show_size_fields and not self.stone_size_id:
+            missing.append("размер")
+        if self.show_shape_fields and not self.shape_id:
+            missing.append("форма")
+        if self.show_form_type_fields and not self.form_type_id:
+            missing.append("тип формы")
+        if missing:
+            raise UserError(f"Заполните характеристики прихода: {', '.join(missing)}.")
 

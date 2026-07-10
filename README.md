@@ -25,29 +25,29 @@ cabochon_manufacturing
 
 ## Установка
 
-База разработки:
+Текущая рабочая база:
 
 ```text
-Cabachon
+Prod
 ```
 
 База Odoo должна быть создана заранее. Первый запуск модулей:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database Cabachon -Install
+powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database Prod -Install
 ```
 
 Обновление после изменений:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database Cabachon
+powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database Prod
 ```
 
 Ручные Docker-команды:
 
 ```powershell
-docker exec odoo19-web odoo -d Cabachon -i cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
-docker exec odoo19-web odoo -d Cabachon -u cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
+docker exec odoo19-web odoo -d Prod -i cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
+docker exec odoo19-web odoo -d Prod -u cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
 ```
 
 Без Docker добавьте папку `addons` проекта в `addons_path` Odoo 19 и запускайте

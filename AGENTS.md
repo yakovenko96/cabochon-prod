@@ -39,7 +39,7 @@ immutable movement history.
 Current database:
 
 ```text
-Cabachon
+Prod
 ```
 
 Do not use old database names in commands.
@@ -61,20 +61,20 @@ unless the user asks for them explicitly.
 Install/update active modules:
 
 ```powershell
-docker exec odoo19-web odoo -d Cabachon -i cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
+docker exec odoo19-web odoo -d Prod -i cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
 ```
 
 Update after code changes:
 
 ```powershell
-docker exec odoo19-web odoo -d Cabachon -u cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
+docker exec odoo19-web odoo -d Prod -u cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
 ```
 
 Helper script:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database Cabachon -Install
-powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database Cabachon
+powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database Prod -Install
+powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database Prod
 ```
 
 Lint:

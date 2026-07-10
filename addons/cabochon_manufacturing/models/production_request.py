@@ -192,10 +192,20 @@ class CabochonProductionRequest(models.Model):
             lots = request.source_lot_ids
             primary_lot = lots[:1]
             request.source_lot_id = primary_lot
+            request.planned_weight_g = primary_lot.current_weight_g if primary_lot else 0.0
             request.additional_source_line_ids = [(5, 0, 0)] + [
                 (0, 0, {"lot_id": lot.id, "weight_g": lot.current_weight_g})
                 for lot in lots[1:]
             ]
+
+    @api.onchange("source_lot_ids")
+    def _onchange_source_lot_ids(self):
+        self._sync_source_lines_from_lots()
+
+    @api.onchange("source_lot_id")
+    def _onchange_source_lot_id(self):
+        for request in self:
+            request.planned_weight_g = request.source_lot_id.current_weight_g if request.source_lot_id else 0.0
 
     @api.model_create_multi
     def create(self, vals_list):

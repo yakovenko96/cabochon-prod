@@ -16,7 +16,7 @@ class CabochonFormType(models.Model):
 class CabochonShape(models.Model):
     _name = "cabochon.shape"
     _description = "Форма"
-    _order = "name"
+    _order = "use_for_press desc, use_for_cutting desc, use_for_machine desc, name"
 
     name = fields.Char(string="Название", required=True, index=True)
     use_for_press = fields.Boolean(string="Пресс")
@@ -44,11 +44,12 @@ class CabochonColor(models.Model):
 class CabochonSize(models.Model):
     _name = "cabochon.size"
     _description = "Размер"
-    _order = "name"
+    _order = (
+        "use_for_sorting desc, use_for_tubes desc, use_for_press desc, "
+        "use_for_cutting desc, use_for_machine desc, use_for_drilling desc, name"
+    )
 
     name = fields.Char(string="Название", required=True, index=True)
-    size = fields.Char(string="Размер")
-    standard_weight_g = fields.Float(string="Эталонный вес 1 шт., г", digits=(16, 4))
     use_for_sorting = fields.Boolean(string="Сортировка")
     use_for_tubes = fields.Boolean(string="Трубы")
     use_for_press = fields.Boolean(string="Пресс")

@@ -31,6 +31,8 @@ finished_location = env.ref("cabochon_manufacturing.location_finished").sudo()
 
 tumble_wash = env.ref("cabochon_manufacturing.operation_tumble_wash").sudo()
 grinding = env.ref("cabochon_manufacturing.operation_grinding_polishing").sudo()
+press = env.ref("cabochon_manufacturing.operation_press").sudo()
+tubes = env.ref("cabochon_manufacturing.operation_tubes").sudo()
 assert all((raw_location, prepared_location, semi_finished_location, finished_location, tumble_wash, grinding))
 
 manager = employee_model.create({"name": f"Smoke Warehouse Manager {suffix}"})
@@ -60,15 +62,37 @@ form_type = env["cabochon.form.type"].sudo().create({"name": f"Smoke Form Type {
 size = env["cabochon.size"].sudo().create(
     {
         "name": f"Smoke Size {suffix}",
-        "size": "10 mm",
-        "standard_weight_g": 2.5,
         "use_for_sorting": True,
+        "use_for_tubes": True,
         "use_for_press": True,
         "use_for_machine": True,
         "use_for_cutting": True,
         "use_for_drilling": True,
     }
 )
+
+prepared_tube_wizard = env["cabochon.external.receipt.wizard"].with_user(admin_user).new(
+    {"location_id": prepared_location.id, "source_operation_id": tubes.id}
+)
+prepared_tube_wizard._compute_receipt_form_state()
+assert set(prepared_tube_wizard.eligible_source_operation_ids.mapped("code")) == {
+    "manual_sorting",
+    "auto_separator",
+    "tubes",
+    "tumble_wash",
+    "toluene_wash",
+}
+assert prepared_tube_wizard.show_size_fields and not prepared_tube_wizard.show_color_fields
+assert all(prepared_tube_wizard.eligible_stone_size_ids.mapped("use_for_tubes"))
+
+semi_finished_press_wizard = env["cabochon.external.receipt.wizard"].with_user(admin_user).new(
+    {"location_id": semi_finished_location.id, "source_operation_id": press.id}
+)
+semi_finished_press_wizard._compute_receipt_form_state()
+assert semi_finished_press_wizard.show_size_fields and semi_finished_press_wizard.show_shape_fields
+assert not semi_finished_press_wizard.show_color_fields
+assert all(semi_finished_press_wizard.eligible_stone_size_ids.mapped("use_for_press"))
+assert all(semi_finished_press_wizard.eligible_shape_ids.mapped("use_for_press"))
 
 external_wizard = env["cabochon.external.receipt.wizard"].with_user(admin_user).create(
     {
@@ -99,9 +123,13 @@ request = env["cabochon.production.request"].sudo().create(
 request.with_user(admin_user).action_confirm()
 issue = request.issue_id.with_user(admin_user)
 assert issue and issue.transfer_type == "issue" and issue.state == "draft"
+assert request.confirmed_at and not issue.transfer_date
 issue.action_manager_confirm()
+assert issue.manager_confirmed_at and not issue.transfer_date
 issue.action_worker_confirm()
 assert issue.state == "confirmed" and request.state == "in_progress"
+assert issue.transfer_date and issue.worker_confirmed_at
+assert request.issued_at == issue.transfer_date and request.started_at == issue.transfer_date
 
 receipt = first(
     request.receipt_ids.filtered(lambda transfer: transfer.transfer_type == "receipt" and transfer.state == "draft"),
@@ -118,8 +146,11 @@ line.write(
     }
 )
 receipt.action_manager_confirm()
+assert receipt.manager_confirmed_at and not receipt.transfer_date
 receipt.action_worker_confirm()
 assert receipt.state == "confirmed" and request.state == "done"
+assert receipt.transfer_date and receipt.worker_confirmed_at
+assert request.first_receipt_at == receipt.transfer_date and request.closed_at == receipt.transfer_date
 
 defect_lot = first(
     env["cabochon.stone.lot"].sudo().search(
@@ -160,6 +191,7 @@ finished_receipt = env["cabochon.external.receipt.wizard"].with_user(admin_user)
 finished_receipt.action_create_receipt()
 finished_lot = first(env["cabochon.stone.lot"].sudo().search([("name", "=", finished_lot_name)]), "finished lot")
 assert finished_lot.location_id == finished_location
+finished_lot.write({"standard_weight_g": 2.5})
 assert round(finished_lot.estimated_quantity, 2) == 40.0
 
 finished_issue = env["cabochon.finished.issue.wizard"].with_user(admin_user).create(

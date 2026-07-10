@@ -85,6 +85,7 @@ class CabochonStoneLot(models.Model):
         compute="_compute_estimated_quantity",
         digits=(16, 2),
     )
+    standard_weight_g = fields.Float(string="Эталонный вес 1 шт., г", digits=(16, 4), tracking=True)
     color_id = fields.Many2one("cabochon.color", string="Цвет", ondelete="restrict")
     stone_size_id = fields.Many2one("cabochon.size", string="Размер", ondelete="restrict")
     shape_id = fields.Many2one("cabochon.shape", string="Форма", ondelete="restrict")
@@ -145,6 +146,12 @@ class CabochonStoneLot(models.Model):
         return lots
 
     def write(self, vals):
+        if (
+            self.env.user.has_group("cabochon_base.group_cabochon_finished_manager")
+            and not self.env.user.has_group("cabochon_base.group_cabochon_admin")
+            and set(vals) - {"standard_weight_g"}
+        ):
+            raise UserError("Менеджер готового склада может менять в складской позиции только эталонный вес.")
         protected_fields = {
             "barcode",
             "parent_id",
@@ -318,17 +325,17 @@ class CabochonStoneLot(models.Model):
             )
             lot.security_manager_user_ids = users
 
-    @api.depends("current_weight_g", "stone_size_id.standard_weight_g")
+    @api.depends("current_weight_g", "standard_weight_g", "location_id.code")
     def _compute_estimated_quantity(self):
         for lot in self:
-            standard_weight = lot.stone_size_id.standard_weight_g
+            standard_weight = lot.standard_weight_g if lot.location_id.code == "finished" else 0.0
             lot.estimated_quantity = (
                 lot.current_weight_g / standard_weight
                 if standard_weight and not float_is_zero(standard_weight, precision_digits=4)
                 else 0.0
             )
 
-    @api.constrains("initial_weight_g", "current_weight_g", "extraction_year")
+    @api.constrains("initial_weight_g", "current_weight_g", "extraction_year", "standard_weight_g", "location_id")
     def _check_lot_values(self):
         for lot in self:
             if float_compare(lot.initial_weight_g, 0.0, precision_digits=4) <= 0:
@@ -337,6 +344,10 @@ class CabochonStoneLot(models.Model):
                 raise ValidationError("Текущий вес мешка не может быть отрицательным.")
             if lot.extraction_year and (lot.extraction_year < 1900 or lot.extraction_year > 2100):
                 raise ValidationError("Проверьте год добычи.")
+            if float_compare(lot.standard_weight_g, 0.0, precision_digits=4) < 0:
+                raise ValidationError("Эталонный вес не может быть отрицательным.")
+            if lot.standard_weight_g and lot.location_id.code != "finished":
+                raise ValidationError("Эталонный вес можно задавать только для позиции готового склада.")
 
     def action_open_movements(self):
         self.ensure_one()
