@@ -36,14 +36,6 @@ class CabochonManufacturingOperation(models.Model):
             if operation.expected_loss_percent < 0 or operation.expected_loss_percent > 100:
                 raise ValidationError("Норма потерь должна быть от 0 до 100%.")
 
-    def write(self, vals):
-        result = super().write(vals)
-        if "expected_loss_percent" in vals:
-            movements = self.env["cabochon.manufacturing.movement"].sudo().search(
-                [("kind", "=", "loss"), ("operation_ids", "in", self.ids)]
-            )
-            movements.mapped("request_id")._sync_loss_over_norm_activities()
-        return result
 
 
 class CabochonExtractionYear(models.Model):
@@ -105,19 +97,6 @@ class CabochonFraction(models.Model):
         for record in self:
             if record.wash_loss_percent < 0 or record.wash_loss_percent > 100:
                 raise ValidationError("Норма потерь на помывке должна быть от 0 до 100%.")
-
-    def write(self, vals):
-        result = super().write(vals)
-        if "wash_loss_percent" in vals:
-            movements = self.env["cabochon.manufacturing.movement"].sudo().search(
-                [
-                    ("kind", "=", "loss"),
-                    ("lot_id.fraction_id", "in", self.ids),
-                    ("operation_ids.code", "in", ("tumble_wash", "toluene_wash")),
-                ]
-            )
-            movements.mapped("request_id")._sync_loss_over_norm_activities()
-        return result
 
     _fraction_name_unique = models.Constraint(
         "UNIQUE(name)",

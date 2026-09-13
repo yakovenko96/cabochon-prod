@@ -1,4 +1,5 @@
 from odoo import api, fields, models
+from odoo.addons.cabochon_base.internal import INTERNAL
 from odoo.exceptions import UserError, ValidationError
 from odoo.tools.float_utils import float_compare, float_is_zero
 
@@ -7,6 +8,7 @@ WEIGHT_DIGITS = (16, 1)
 
 class CabochonFinishedIssueWizard(models.TransientModel):
     _name = "cabochon.finished.issue.wizard"
+    _inherit = "cabochon.once.mixin"
     _description = "Продажа/выдача готовых камней"
 
     customer_id = fields.Many2one("cabochon.finished.customer", string="Покупатель", ondelete="restrict")
@@ -30,6 +32,7 @@ class CabochonFinishedIssueWizard(models.TransientModel):
     def action_confirm(self):
         finished_location = self.env.ref("cabochon_manufacturing.location_finished").sudo()
         for wizard in self:
+            wizard._lock_execution()
             if not wizard.line_ids:
                 raise UserError("Добавьте строки выдачи.")
             if not finished_location.manager_id:
@@ -46,7 +49,10 @@ class CabochonFinishedIssueWizard(models.TransientModel):
             )
             wizard.line_ids.mapped("lot_id").invalidate_recordset(["current_weight_g", "state", "location_id"])
             for line in wizard.line_ids:
+                if line.lot_id.company_id != wizard.company_id or wizard.company_id not in self.env.companies:
+                    raise UserError("Компания документа должна совпадать с компанией мешка и быть доступна пользователю.")
                 line._confirm_finished_issue(finished_location)
+            wizard._mark_executed()
         return {"type": "ir.actions.act_window_close"}
 
 
@@ -89,7 +95,7 @@ class CabochonFinishedIssueWizardLine(models.TransientModel):
         if float_compare(lot.current_weight_g, self.weight_g, precision_digits=4) < 0:
             raise UserError(f"В мешке {lot.display_name} недостаточно веса.")
         remaining_weight = lot.current_weight_g - self.weight_g
-        lot.with_context(cabochon_inventory_movement=True).write(
+        lot.with_context(cabochon_inventory_movement=INTERNAL).write(
             {
                 "current_weight_g": remaining_weight,
                 "state": "written_off" if float_is_zero(remaining_weight, precision_digits=4) else "available",
@@ -108,6 +114,7 @@ class CabochonFinishedIssueWizardLine(models.TransientModel):
                 "lot_id": lot.id,
                 "source_location_id": finished_location.id,
                 "manager_id": self.wizard_id.manager_id.id,
+                "customer_id": self.wizard_id.customer_id.id,
                 "weight_g": self.weight_g,
                 "movement_date": self.wizard_id.issue_date,
                 "note": "; ".join(note_parts),

@@ -75,3 +75,5 @@ access_hr_employee_cabochon_manager,hr.employee cabochon manager,hr.model_hr_emp
 access_hr_employee_cabochon_workshop,hr.employee cabochon workshop,hr.model_hr_employee,cabochon_base.group_cabochon_workshop_manager,1,0,0,0
 access_hr_employee_cabochon_finished,hr.employee cabochon finished,hr.model_hr_employee,cabochon_base.group_cabochon_finished_manager,1,0,0,0
 access_hr_employee_cabochon_admin,hr.employee cabochon admin,hr.model_hr_employee,cabochon_base.group_cabochon_admin,1,1,1,1
+access_integrity_report_admin,integrity report admin,model_cabochon_integrity_report,cabochon_base.group_cabochon_admin,1,0,0,0
+access_scan_lot_user,scan lot user,model_cabochon_scan_lot,cabochon_base.group_cabochon_user,1,1,1,1

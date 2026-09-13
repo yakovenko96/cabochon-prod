@@ -192,4 +192,64 @@
         <field name="domain_force">[('worker_id.user_id', '=', user.id)]</field>
         <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_user'))]"/>
     </record>
+    <record id="rule_company_global_stone_lot" model="ir.rule">
+        <field name="name">Cabochon: разрешенные компании (stone_lot)</field>
+        <field name="model_id" ref="model_cabochon_stone_lot"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_company_global_production_request" model="ir.rule">
+        <field name="name">Cabochon: разрешенные компании (production_request)</field>
+        <field name="model_id" ref="model_cabochon_production_request"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_company_global_material_transfer" model="ir.rule">
+        <field name="name">Cabochon: разрешенные компании (material_transfer)</field>
+        <field name="model_id" ref="model_cabochon_material_transfer"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_company_global_manufacturing_movement" model="ir.rule">
+        <field name="name">Cabochon: разрешенные компании (manufacturing_movement)</field>
+        <field name="model_id" ref="model_cabochon_manufacturing_movement"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_company_global_employee_operation_access" model="ir.rule">
+        <field name="name">Cabochon: разрешенные компании (employee_operation_access)</field>
+        <field name="model_id" ref="model_cabochon_employee_operation_access"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_company_global_worker_load_report" model="ir.rule">
+        <field name="name">Cabochon: разрешенные компании (worker_load_report)</field>
+        <field name="model_id" ref="model_cabochon_worker_load_report"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_company_global_worker_operation_quality_report" model="ir.rule">
+        <field name="name">Cabochon: разрешенные компании (worker_operation_quality_report)</field>
+        <field name="model_id" ref="model_cabochon_worker_operation_quality_report"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_company_global_production_request_source_line" model="ir.rule">
+        <field name="name">Cabochon: компании строк (production_request_source_line)</field>
+        <field name="model_id" ref="model_cabochon_production_request_source_line"/>
+        <field name="domain_force">[('request_id.company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_company_global_production_request_task_line" model="ir.rule">
+        <field name="name">Cabochon: компании строк (production_request_task_line)</field>
+        <field name="model_id" ref="model_cabochon_production_request_task_line"/>
+        <field name="domain_force">[('request_id.company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_company_global_production_request_operation_line" model="ir.rule">
+        <field name="name">Cabochon: компании строк (production_request_operation_line)</field>
+        <field name="model_id" ref="model_cabochon_production_request_operation_line"/>
+        <field name="domain_force">[('request_id.company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_company_global_material_transfer_line" model="ir.rule">
+        <field name="name">Cabochon: компании строк (material_transfer_line)</field>
+        <field name="model_id" ref="model_cabochon_material_transfer_line"/>
+        <field name="domain_force">[('transfer_id.company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_integrity_company" model="ir.rule">
+        <field name="name">Integrity report companies</field>
+        <field name="model_id" ref="model_cabochon_integrity_report"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
 </odoo>

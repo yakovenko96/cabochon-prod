@@ -1,4 +1,5 @@
 from odoo import api, fields, models
+from odoo.addons.cabochon_base.internal import INTERNAL, is_internal
 from odoo.exceptions import UserError
 
 AUDITED_MODELS = {
@@ -47,17 +48,17 @@ class CabochonAuditLog(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        if not self.env.context.get("skip_cabochon_audit"):
+        if not is_internal(self.env, "skip_cabochon_audit"):
             raise UserError("Журнал действий заполняется автоматически.")
         return super().create(vals_list)
 
     def write(self, vals):
-        if not self.env.context.get("skip_cabochon_audit"):
+        if not is_internal(self.env, "skip_cabochon_audit"):
             raise UserError("Журнал действий нельзя редактировать.")
         return super().write(vals)
 
     def unlink(self):
-        if not self.env.context.get("skip_cabochon_audit"):
+        if not is_internal(self.env, "skip_cabochon_audit"):
             raise UserError("Журнал действий нельзя удалять.")
         return super().unlink()
 
@@ -120,17 +121,23 @@ class CabochonAuditBase(models.AbstractModel):
     def _cabochon_audit_should_track_model(self):
         return (
             self._name in AUDITED_MODELS
-            and not self.env.context.get("skip_cabochon_audit")
+            and not is_internal(self.env, "skip_cabochon_audit")
             and self._cabochon_audit_log_model_ready()
         )
 
     def _cabochon_audit_log_model_ready(self):
+        cache_key = "cabochon_audit_table_ready"
+        if self.env.cr.cache.get(cache_key):
+            return True
         try:
             self.env["cabochon.audit.log"]
         except KeyError:
             return False
         self.env.cr.execute("SELECT to_regclass('cabochon_audit_log')")
-        return bool(self.env.cr.fetchone()[0])
+        ready = bool(self.env.cr.fetchone()[0])
+        if ready:
+            self.env.cr.cache[cache_key] = True
+        return ready
 
     def _cabochon_audit_should_track_record(self):
         self.ensure_one()
@@ -166,10 +173,10 @@ class CabochonAuditBase(models.AbstractModel):
         old_values = old_values or {}
         new_values = new_values or {}
         changed_fields = sorted(set(old_values) | set(new_values))
-        self.env["cabochon.audit.log"].sudo().with_context(skip_cabochon_audit=True).create(
+        self.env["cabochon.audit.log"].sudo().with_context(skip_cabochon_audit=INTERNAL).create(
             {
                 "action_date": fields.Datetime.now(),
-                "user_id": self.env.context.get("cabochon_audit_user_id", self.env.user.id),
+                "user_id": self.env.uid,
                 "action": action,
                 "model_name": model_name,
                 "model_description": model_description,

@@ -1,4 +1,5 @@
 from odoo import api, fields, models
+from odoo.addons.cabochon_base.internal import INTERNAL
 from odoo.exceptions import UserError
 from odoo.tools.float_utils import float_compare, float_is_zero
 
@@ -7,6 +8,7 @@ WEIGHT_DIGITS = (16, 1)
 
 class CabochonDefectRecoveryWizard(models.TransientModel):
     _name = "cabochon.defect.recovery.wizard"
+    _inherit = "cabochon.once.mixin"
     _description = "Обратное преобразование брака в полуфабрикат"
 
     defect_lot_id = fields.Many2one(
@@ -93,8 +95,11 @@ class CabochonDefectRecoveryWizard(models.TransientModel):
 
     def action_recover(self):
         self.ensure_one()
+        self._lock_execution()
         defect_lot = self.defect_lot_id.sudo()
         destination = self.destination_location_id.sudo()
+        if defect_lot.company_id != self.company_id or self.company_id not in self.env.companies:
+            raise UserError("Компания документа должна совпадать с компанией мешка и быть доступна пользователю.")
         if not defect_lot.is_defect_lot or defect_lot.state != "available":
             raise UserError("Выберите доступный сводный мешок брака.")
         if destination.code != "semi_finished":
@@ -115,13 +120,14 @@ class CabochonDefectRecoveryWizard(models.TransientModel):
 
         new_lot = self._create_recovered_lot(defect_lot, destination)
         remaining_weight = defect_lot.current_weight_g - self.weight_g
-        defect_lot.with_context(cabochon_inventory_movement=True).write(
+        defect_lot.with_context(cabochon_inventory_movement=INTERNAL).write(
             {
                 "current_weight_g": remaining_weight,
                 "state": "consumed" if float_is_zero(remaining_weight, precision_digits=4) else "available",
             }
         )
         self._create_recovery_movement(defect_lot, new_lot, destination)
+        self._mark_executed()
         return {
             "type": "ir.actions.act_window",
             "name": "Остаток на складе",
@@ -163,7 +169,7 @@ class CabochonDefectRecoveryWizard(models.TransientModel):
             "stone_size": self.stone_size_id.name if self.stone_size_id else False,
             "company_id": self.company_id.id,
         }
-        return self.env["cabochon.stone.lot"].sudo().with_context(skip_initial_lot_movement=True).create(values)
+        return self.env["cabochon.stone.lot"].sudo().with_context(skip_initial_lot_movement=INTERNAL).create(values)
 
     def _create_recovery_movement(self, defect_lot, new_lot, destination):
         operation_ids = [defect_lot.defect_operation_id.id] if defect_lot.defect_operation_id else []

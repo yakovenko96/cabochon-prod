@@ -1,4 +1,5 @@
 from odoo import models
+from odoo.addons.cabochon_base.internal import is_internal
 from odoo.exceptions import AccessError
 
 _CABOCHON_ACTIVITY_MODELS = {
@@ -11,7 +12,7 @@ class MailActivity(models.Model):
     _inherit = "mail.activity"
 
     def _check_cabochon_assignee_access(self):
-        if self.env.context.get("cabochon_activity_system_update"):
+        if is_internal(self.env, "cabochon_activity_system_update"):
             return
         forbidden = self.filtered(
             lambda activity: activity.res_model in _CABOCHON_ACTIVITY_MODELS

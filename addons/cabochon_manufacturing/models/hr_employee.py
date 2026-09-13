@@ -113,6 +113,8 @@ class CabochonEmployeeOperationAccess(models.Model):
     _rec_name = "employee_id"
     _order = "name, id"
 
+    company_id = fields.Many2one("res.company", readonly=True)
+
     employee_id = fields.Many2one("hr.employee", string="Карточка сотрудника", readonly=True)
     name = fields.Char(string="Сотрудник", readonly=True)
     cabochon_allowed_operation_ids = fields.Many2many(
@@ -134,13 +136,16 @@ class CabochonEmployeeOperationAccess(models.Model):
                 SELECT
                     employee.id AS id,
                     employee.id AS employee_id,
-                    employee.name AS name
+                    employee.name AS name,
+                    employee.company_id AS company_id
                 FROM hr_employee employee
             )
             """
         )
 
     def write(self, vals):
+        self.check_access("write")
+        vals = dict(vals)
         allowed_operation_commands = vals.pop("cabochon_allowed_operation_ids", None)
         if vals:
             raise UserError("В этом разделе можно менять только допуски сотрудников к операциям.")

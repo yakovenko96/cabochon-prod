@@ -1,4 +1,5 @@
 from odoo import api, fields, models
+from odoo.addons.cabochon_base.internal import INTERNAL, is_internal
 from odoo.exceptions import UserError, ValidationError
 from odoo.tools.float_utils import float_compare
 
@@ -11,6 +12,9 @@ DRILLING_OPERATION_CODES = {"drilling"}
 TUBE_OPERATION_CODES = {"tubes"}
 REPEATABLE_OPERATION_CODES = {"grinding_polishing"}
 TASK_OPERATION_CODES = {"press"} | MACHINE_OPERATION_CODES | CUTTING_OPERATION_CODES | DRILLING_OPERATION_CODES
+REQUEST_SYSTEM_FIELDS = {
+    "state", "confirmed_at", "issued_at", "started_at", "first_receipt_at", "closed_at", "issue_id",
+}
 
 
 class CabochonProductionRequest(models.Model):
@@ -198,17 +202,14 @@ class CabochonProductionRequest(models.Model):
                 for lot in lots[1:]
             ]
 
-    @api.onchange("source_lot_ids")
-    def _onchange_source_lot_ids(self):
-        self._sync_source_lines_from_lots()
-
-    @api.onchange("source_lot_id")
-    def _onchange_source_lot_id(self):
-        for request in self:
-            request.planned_weight_g = request.source_lot_id.current_weight_g if request.source_lot_id else 0.0
-
     @api.model_create_multi
     def create(self, vals_list):
+        if not is_internal(self.env, "cabochon_request_internal_update"):
+            defaults = self.default_get(list(REQUEST_SYSTEM_FIELDS))
+            for incoming in vals_list:
+                vals = dict(defaults, **incoming)
+                if any(vals.get(key) for key in REQUEST_SYSTEM_FIELDS - {"state"}) or vals.get("state", "draft") != "draft":
+                    raise UserError("Заявка создается только в черновике без служебных дат.")
         sequence = self.env["ir.sequence"]
         source_lot_ids = [vals.get("source_lot_id") for vals in vals_list if vals.get("source_lot_id")]
         if len(source_lot_ids) != len(set(source_lot_ids)):
@@ -218,11 +219,14 @@ class CabochonProductionRequest(models.Model):
             if vals.get("name", "Новый") == "Новый":
                 vals["name"] = sequence.next_by_code("cabochon.production.request") or "Новый"
         requests = super().create(vals_list)
+        requests._reserve_source_lots()
         requests._sync_operation_lines()
         requests._notify_overdue_technologists()
         return requests
 
     def write(self, vals):
+        if REQUEST_SYSTEM_FIELDS.intersection(vals) and not is_internal(self.env, "cabochon_request_internal_update"):
+            raise UserError("Статус и даты заявки меняются только через производственные действия.")
         business_fields = {
             "technologist_id",
             "worker_id",
@@ -230,6 +234,8 @@ class CabochonProductionRequest(models.Model):
             "sort_type",
             "receipt_destination_stage",
             "source_lot_id",
+            "source_lot_ids",
+            "company_id",
             "additional_source_line_ids",
             "task_line_ids",
             "planned_weight_g",
@@ -241,6 +247,8 @@ class CabochonProductionRequest(models.Model):
         if vals.get("source_lot_id"):
             self._check_source_lots_available([vals["source_lot_id"]], exclude_request_ids=self.ids)
         result = super().write(vals)
+        if {"source_lot_id", "additional_source_line_ids", "state"}.intersection(vals):
+            self._reserve_source_lots()
         if "operation_ids" in vals and not self.env.context.get("skip_operation_line_sync"):
             self._sync_operation_lines()
             self._clear_obsolete_task_lines()
@@ -248,6 +256,48 @@ class CabochonProductionRequest(models.Model):
             self._clear_overdue_activities()
             self._notify_overdue_technologists()
         return result
+
+    def _workflow_write(self, vals):
+        return self.with_context(cabochon_request_internal_update=INTERNAL).write(vals)
+
+    def unlink(self):
+        self.check_access("unlink")
+        if any(request.state != "draft" or request.movement_ids for request in self):
+            raise UserError("Удалять можно только черновые заявки без движений.")
+        self.env["cabochon.stone.lot"].sudo().search([("reserved_request_id", "in", self.ids)]).with_context(cabochon_inventory_movement=INTERNAL).write({"reserved_request_id": False})
+        return super().unlink()
+
+    def _lock_workflow(self):
+        self.check_access("write")
+        self.env.cr.execute("SELECT id FROM cabochon_production_request WHERE id IN %s ORDER BY id FOR UPDATE", [tuple(self.ids)])
+        self.invalidate_recordset()
+
+    def _reserve_source_lots(self):
+        """One reservation slot per lot, shared by primary and additional sources."""
+        lots_model = self.env["cabochon.stone.lot"].sudo()
+        for request in self:
+            lots = request.source_lot_id | request.additional_source_line_ids.mapped("lot_id")
+            if any(lot.company_id != request.company_id for lot in lots):
+                raise ValidationError("Все исходные мешки должны принадлежать компании заявки.")
+            if request.state == "cancelled":
+                lots = lots_model
+            reserved = lots_model.search([("reserved_request_id", "=", request.id)])
+            (reserved - lots).with_context(cabochon_inventory_movement=INTERNAL).write({"reserved_request_id": False})
+            for lot in lots.sorted("id"):
+                self.env.cr.execute(
+                    "UPDATE cabochon_stone_lot SET reserved_request_id = %s "
+                    "WHERE id = %s AND (reserved_request_id IS NULL OR reserved_request_id = %s) RETURNING id",
+                    [request.id, lot.id, request.id],
+                )
+                if not self.env.cr.fetchone():
+                    raise ValidationError("Исходный мешок уже зарезервирован другой заявкой.")
+                lot.invalidate_recordset(["reserved_request_id"])
+
+    @api.constrains("company_id", "worker_id", "technologist_id")
+    def _check_company_participants(self):
+        for request in self:
+            if any(employee.company_id != request.company_id for employee in request.worker_id | request.technologist_id):
+                raise ValidationError("Участники должны принадлежать компании заявки.")
 
     @api.model
     def _check_source_lots_available(self, source_lot_ids, exclude_request_ids=None):
@@ -387,24 +437,12 @@ class CabochonProductionRequest(models.Model):
     def _compute_eligible_lot_ids(self):
         lot_model = self.env["cabochon.stone.lot"].sudo()
         for request in self:
-            used_lot_ids = self.sudo().search_fetch(
-                [
-                    ("id", "!=", request.id or 0),
-                    ("state", "!=", "cancelled"),
-                    ("source_lot_id", "!=", False),
-                ],
-                ["source_lot_id"],
-            ).mapped("source_lot_id").ids
-            used_lot_ids += self.env["cabochon.production.request.source.line"].sudo().search(
-                [
-                    ("request_id", "!=", request.id or 0),
-                    ("request_id.state", "!=", "cancelled"),
-                ]
-            ).mapped("lot_id").ids
             lot_domain = [
                 ("state", "=", "available"),
                 ("is_defect_lot", "=", False),
-                ("id", "not in", used_lot_ids),
+                ("company_id", "=", request.company_id.id or self.env.company.id),
+                "|", ("reserved_request_id", "=", False),
+                ("reserved_request_id", "=", request.id or 0),
             ]
             if request.source_lot_id:
                 lot_domain = ["|", ("id", "=", request.source_lot_id.id), *lot_domain]
@@ -641,13 +679,15 @@ class CabochonProductionRequest(models.Model):
         return False
 
     def action_confirm(self):
+        self._lock_workflow()
+        self._reserve_source_lots()
         for request in self:
             if request.state != "draft":
                 continue
             request._validate_task_lines()
             request._sync_operation_lines()
             request._ensure_issue_transfer()
-            request.write(
+            request._workflow_write(
                 {
                     "state": "confirmed",
                     "confirmed_at": request.confirmed_at or fields.Datetime.now(),
@@ -674,12 +714,15 @@ class CabochonProductionRequest(models.Model):
         return True
 
     def action_close(self):
+        self._lock_workflow()
         for request in self:
             if request.state not in ("in_progress", "partially_done"):
                 continue
+            if request._open_issued_lots_for_receipt() or request.receipt_ids.filtered(lambda item: item.transfer_type == "receipt" and item.state != "confirmed"):
+                raise UserError("Сначала завершите сдачи и закройте остатки у работника.")
             now = fields.Datetime.now()
             request._finish_open_operation_lines(now)
-            request.write(
+            request._workflow_write(
                 {
                     "state": "done",
                     "closed_at": request.closed_at or now,
@@ -689,10 +732,11 @@ class CabochonProductionRequest(models.Model):
             request._clear_loss_over_norm_activities()
 
     def action_cancel(self):
+        self._lock_workflow()
         for request in self:
             if request.movement_ids:
                 raise UserError("Заявку с движениями нельзя отменить. Создайте корректирующие движения.")
-            request.state = "cancelled"
+            request._workflow_write({"state": "cancelled"})
             request._clear_overdue_activities()
             request._clear_loss_over_norm_activities()
 
@@ -758,7 +802,7 @@ class CabochonProductionRequest(models.Model):
             )
             if existing:
                 continue
-            request.sudo().with_context(cabochon_activity_system_update=True).activity_schedule(
+            request.sudo().with_context(cabochon_activity_system_update=INTERNAL).activity_schedule(
                 activity_type_id=activity_type.id,
                 date_deadline=today,
                 summary="Просрочена заявка на изготовление",
@@ -779,7 +823,7 @@ class CabochonProductionRequest(models.Model):
                 ("summary", "=", "Просрочена заявка на изготовление"),
             ]
         )
-        activities.with_context(cabochon_activity_system_update=True).unlink()
+        activities.with_context(cabochon_activity_system_update=INTERNAL).unlink()
 
     def _sync_loss_over_norm_activities(self):
         for request in self:
@@ -800,7 +844,7 @@ class CabochonProductionRequest(models.Model):
                 ("summary", "=", "Потери выше нормы"),
             ]
         )
-        activities.with_context(cabochon_activity_system_update=True).unlink()
+        activities.with_context(cabochon_activity_system_update=INTERNAL).unlink()
 
     @api.model
     def _cron_notify_overdue_requests(self):
@@ -838,7 +882,7 @@ class CabochonProductionRequest(models.Model):
                 "company_id": self.company_id.id,
             }
         )
-        self.issue_id = issue
+        self._workflow_write({"issue_id": issue.id})
         return issue
 
 
@@ -955,6 +999,7 @@ class CabochonProductionRequestTaskLine(models.Model):
         string="Заявка",
         required=True,
         ondelete="cascade",
+        index=True,
     )
     sequence = fields.Integer(string="Порядок", default=10)
     operation_id = fields.Many2one(
@@ -965,10 +1010,10 @@ class CabochonProductionRequestTaskLine(models.Model):
     )
     operation_code = fields.Char(related="operation_id.code", store=True, readonly=True)
     sort_type = fields.Char(string="Тип сортировки")
-    color_id = fields.Many2one("cabochon.color", string="Цвет", ondelete="restrict")
-    stone_size_id = fields.Many2one("cabochon.size", string="Размер", ondelete="restrict")
-    shape_id = fields.Many2one("cabochon.shape", string="Форма", ondelete="restrict")
-    form_type_id = fields.Many2one("cabochon.form.type", string="Тип формы", ondelete="restrict")
+    color_id = fields.Many2one("cabochon.color", string="Цвет", ondelete="restrict", index=True)
+    stone_size_id = fields.Many2one("cabochon.size", string="Размер", ondelete="restrict", index=True)
+    shape_id = fields.Many2one("cabochon.shape", string="Форма", ondelete="restrict", index=True)
+    form_type_id = fields.Many2one("cabochon.form.type", string="Тип формы", ondelete="restrict", index=True)
     show_sort_fields = fields.Boolean(compute="_compute_field_visibility")
     show_tube_fields = fields.Boolean(compute="_compute_field_visibility")
     show_press_fields = fields.Boolean(compute="_compute_field_visibility")
@@ -1001,6 +1046,9 @@ class CabochonProductionRequestTaskLine(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
+            request = self.env["cabochon.production.request"].browse(vals.get("request_id"))
+            if request and request.state != "draft":
+                raise UserError("Строки заявки можно менять только в черновике.")
             operation = self.env["cabochon.manufacturing.operation"].browse(vals.get("operation_id"))
             if operation.code in SORT_OPERATION_TYPES and not vals.get("sort_type"):
                 vals["sort_type"] = SORT_OPERATION_TYPES[operation.code]
@@ -1117,6 +1165,17 @@ class CabochonProductionRequestTaskLine(models.Model):
                     f"В задаче операции {line.operation_id.display_name} заполните: {', '.join(missing)}."
                 )
 
+    def write(self, vals):
+        requests = self.mapped("request_id") | self.env["cabochon.production.request"].browse(vals.get("request_id"))
+        if any(request.state != "draft" for request in requests):
+            raise UserError("Строки заявки можно менять только в черновике.")
+        return super().write(vals)
+
+    def unlink(self):
+        if any(line.request_id.state != "draft" for line in self):
+            raise UserError("Строки заявки можно менять только в черновике.")
+        return super().unlink()
+
     def _receipt_line_values(self, lot=False, weight_before=0.0):
         self.ensure_one()
         return {
@@ -1138,8 +1197,34 @@ class CabochonProductionRequestSourceLine(models.Model):
     request_id = fields.Many2one(
         "cabochon.production.request", string="Заявка", required=True, ondelete="cascade"
     )
-    lot_id = fields.Many2one("cabochon.stone.lot", string="Исходный мешок", required=True, ondelete="restrict")
+    lot_id = fields.Many2one("cabochon.stone.lot", string="Исходный мешок", required=True, ondelete="restrict", index=True)
     weight_g = fields.Float(string="Плановый вес, г", required=True, digits=WEIGHT_DIGITS)
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            request = self.env["cabochon.production.request"].browse(vals.get("request_id"))
+            if request.state != "draft":
+                raise UserError("Строки заявки можно менять только в черновике.")
+        lines = super().create(vals_list)
+        lines.mapped("request_id")._reserve_source_lots()
+        return lines
+
+    def write(self, vals):
+        requests = self.mapped("request_id") | self.env["cabochon.production.request"].browse(vals.get("request_id"))
+        if any(request.state != "draft" for request in requests):
+            raise UserError("Строки заявки можно менять только в черновике.")
+        result = super().write(vals)
+        requests._reserve_source_lots()
+        return result
+
+    def unlink(self):
+        requests = self.mapped("request_id")
+        if any(request.state != "draft" for request in requests):
+            raise UserError("Строки заявки можно менять только в черновике.")
+        result = super().unlink()
+        requests._reserve_source_lots()
+        return result
 
     @api.constrains("lot_id", "weight_g", "request_id")
     def _check_values(self):
@@ -1169,6 +1254,7 @@ class CabochonProductionRequestOperationLine(models.Model):
         string="Заявка",
         required=True,
         ondelete="cascade",
+        index=True,
     )
     operation_id = fields.Many2one(
         "cabochon.manufacturing.operation",

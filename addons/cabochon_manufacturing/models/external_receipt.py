@@ -1,4 +1,5 @@
 from odoo import api, fields, models
+from odoo.addons.cabochon_base.internal import INTERNAL
 from odoo.exceptions import UserError
 from odoo.tools.float_utils import float_compare
 
@@ -36,6 +37,7 @@ SHAPE_FLAG_BY_OPERATION = {
 
 class CabochonExternalReceiptWizard(models.TransientModel):
     _name = "cabochon.external.receipt.wizard"
+    _inherit = "cabochon.once.mixin"
     _description = "Приход внешнего мешка сырья"
 
     supplier_id = fields.Many2one("cabochon.supplier", string="Поставщик", ondelete="restrict")
@@ -173,6 +175,7 @@ class CabochonExternalReceiptWizard(models.TransientModel):
 
     def action_create_receipt(self):
         self.ensure_one()
+        self._lock_execution()
         if float_compare(self.initial_weight_g, 0.0, precision_digits=4) <= 0:
             raise UserError("Вес прихода должен быть больше нуля.")
         if self.location_id not in self._available_receipt_locations():
@@ -214,7 +217,23 @@ class CabochonExternalReceiptWizard(models.TransientModel):
         create_context = {}
         if self.source_operation_id:
             create_context["cabochon_initial_operation_ids"] = [self.source_operation_id.id]
-        lot = self.env["cabochon.stone.lot"].sudo().with_context(**create_context).create(lot_values)
+        lot_model = self.env["cabochon.stone.lot"].sudo()
+        lot = lot_model._find_finished_position(lot_values) if self.location_id.code == "finished" else lot_model
+        if lot:
+            lot.with_context(cabochon_inventory_movement=INTERNAL).write({
+                "current_weight_g": lot.current_weight_g + self.initial_weight_g,
+                "initial_weight_g": lot.initial_weight_g + self.initial_weight_g,
+            })
+            self.env["cabochon.manufacturing.movement"].sudo().create({
+                "kind": "receipt", "new_lot_id": lot.id, "weight_g": self.initial_weight_g,
+                "destination_location_id": self.location_id.id, "company_id": lot.company_id.id,
+                "manager_id": self.env.user.sudo().employee_id.id,
+                "operation_ids": [(6, 0, self.source_operation_id.ids)],
+                "note": self.note,
+            })
+        else:
+            lot = lot_model.with_context(**create_context).create(lot_values)
+        self._mark_executed()
         if self.note:
             lot.message_post(body=self.note)
         return {

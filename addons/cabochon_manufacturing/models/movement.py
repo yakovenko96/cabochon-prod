@@ -1,4 +1,5 @@
 from odoo import api, fields, models
+from odoo.addons.cabochon_base.internal import INTERNAL
 from odoo.exceptions import UserError
 from odoo.tools.float_utils import float_compare, float_is_zero
 
@@ -29,10 +30,10 @@ class CabochonManufacturingMovement(models.Model):
         [("detected", "Выявленный брак"), ("made", "Сделанный брак")],
         string="Тип брака",
     )
-    request_id = fields.Many2one("cabochon.production.request", string="Заявка", ondelete="restrict")
-    transfer_id = fields.Many2one("cabochon.material.transfer", string="Документ", ondelete="restrict")
-    lot_id = fields.Many2one("cabochon.stone.lot", string="Исходный мешок", ondelete="restrict")
-    new_lot_id = fields.Many2one("cabochon.stone.lot", string="Новый мешок", ondelete="restrict")
+    request_id = fields.Many2one("cabochon.production.request", string="Заявка", ondelete="restrict", index=True)
+    transfer_id = fields.Many2one("cabochon.material.transfer", string="Документ", ondelete="restrict", index=True)
+    lot_id = fields.Many2one("cabochon.stone.lot", string="Исходный мешок", ondelete="restrict", index=True)
+    new_lot_id = fields.Many2one("cabochon.stone.lot", string="Новый мешок", ondelete="restrict", index=True)
     operation_ids = fields.Many2many(
         "cabochon.manufacturing.operation",
         "cabochon_movement_operation_rel",
@@ -84,6 +85,8 @@ class CabochonManufacturingMovement(models.Model):
         readonly=True,
         aggregator=False,
     )
+    applied_loss_norm_percent = fields.Float(string="Примененная норма, %", readonly=True, copy=False)
+    norm_snapshot_migrated = fields.Boolean(string="Норма восстановлена при обновлении", readonly=True, copy=False)
     loss_norm_percent = fields.Float(
         string="Норма потерь, %",
         compute="_compute_loss_quality",
@@ -104,13 +107,15 @@ class CabochonManufacturingMovement(models.Model):
         compute="_compute_loss_quality",
         store=True,
     )
-    source_location_id = fields.Many2one("cabochon.manufacturing.location", string="Откуда", ondelete="restrict")
-    destination_location_id = fields.Many2one("cabochon.manufacturing.location", string="Куда", ondelete="restrict")
-    worker_id = fields.Many2one("hr.employee", string="Работник", ondelete="restrict")
-    manager_id = fields.Many2one("hr.employee", string="Ответственный", ondelete="restrict")
+    source_location_id = fields.Many2one("cabochon.manufacturing.location", string="Откуда", ondelete="restrict", index=True)
+    destination_location_id = fields.Many2one("cabochon.manufacturing.location", string="Куда", ondelete="restrict", index=True)
+    worker_id = fields.Many2one("hr.employee", string="Работник", ondelete="restrict", index=True)
+    manager_id = fields.Many2one("hr.employee", string="Ответственный", ondelete="restrict", index=True)
     weight_g = fields.Float(string="Вес, г", digits=WEIGHT_DIGITS, required=True)
     movement_date = fields.Datetime(string="Дата движения", default=fields.Datetime.now, required=True)
-    correction_of_id = fields.Many2one("cabochon.manufacturing.movement", string="Корректирует", ondelete="restrict")
+    correction_of_id = fields.Many2one("cabochon.manufacturing.movement", string="Корректирует", ondelete="restrict", index=True)
+    performed_by_id = fields.Many2one("res.users", string="Действие выполнил", readonly=True, ondelete="restrict", index=True)
+    customer_id = fields.Many2one("cabochon.finished.customer", string="Покупатель", ondelete="restrict", index=True)
     note = fields.Text(string="Комментарий")
     company_id = fields.Many2one(
         "res.company",
@@ -124,6 +129,9 @@ class CabochonManufacturingMovement(models.Model):
     def create(self, vals_list):
         sequence = self.env["ir.sequence"]
         for vals in vals_list:
+            vals["performed_by_id"] = self.env.uid
+            vals["applied_loss_norm_percent"] = self.new(vals)._combined_expected_loss_percent()
+            vals["norm_snapshot_migrated"] = False
             if vals.get("name", "Новый") == "Новый":
                 vals["name"] = sequence.next_by_code("cabochon.manufacturing.movement") or "Новый"
         movements = super().create(vals_list)
@@ -155,13 +163,11 @@ class CabochonManufacturingMovement(models.Model):
         "kind",
         "weight_g",
         "source_weight_before_g",
-        "operation_ids.expected_loss_percent",
-        "lot_id.fraction_id.wash_loss_percent",
-        "new_lot_id.fraction_id.wash_loss_percent",
+        "applied_loss_norm_percent",
     )
     def _compute_loss_quality(self):
         for movement in self:
-            norm = movement._combined_expected_loss_percent()
+            norm = movement.applied_loss_norm_percent
             fact = 0.0
             if movement.kind == "loss" and movement.source_weight_before_g:
                 fact = movement.weight_g / movement.source_weight_before_g * 100.0
@@ -203,7 +209,7 @@ class CabochonManufacturingMovement(models.Model):
             )
             if existing:
                 continue
-            request.sudo().with_context(cabochon_activity_system_update=True).activity_schedule(
+            request.sudo().with_context(cabochon_activity_system_update=INTERNAL).activity_schedule(
                 activity_type_id=activity_type.id,
                 date_deadline=today,
                 summary="Потери выше нормы",
@@ -240,6 +246,7 @@ class CabochonManufacturingMovement(models.Model):
 
 class CabochonMovementCorrectionWizard(models.TransientModel):
     _name = "cabochon.movement.correction.wizard"
+    _inherit = "cabochon.once.mixin"
     _description = "Мастер корректировки движения Кабошонов"
 
     correction_type = fields.Selection(
@@ -279,11 +286,15 @@ class CabochonMovementCorrectionWizard(models.TransientModel):
 
     def action_apply(self):
         self.ensure_one()
+        self._lock_execution()
         self._check_correction_scope()
+        self.env.cr.execute("SELECT id FROM cabochon_stone_lot WHERE id = %s FOR UPDATE", [self.lot_id.id])
+        self.lot_id.invalidate_recordset()
         if self.correction_type == "weight":
             self._apply_weight_correction()
         else:
             self._apply_location_correction()
+        self._mark_executed()
         return {"type": "ir.actions.act_window_close"}
 
     @api.model
@@ -320,7 +331,7 @@ class CabochonMovementCorrectionWizard(models.TransientModel):
         if float_compare(new_weight, 0.0, precision_digits=4) < 0:
             raise UserError("Корректировка не может сделать текущий вес мешка отрицательным.")
         source_location = self.lot_id.location_id
-        self.lot_id.with_context(cabochon_inventory_movement=True).write(
+        self.lot_id.with_context(cabochon_inventory_movement=INTERNAL).write(
             {
                 "current_weight_g": new_weight,
                 "state": self._state_for_location(source_location, new_weight),
@@ -339,7 +350,7 @@ class CabochonMovementCorrectionWizard(models.TransientModel):
         source_location = self.lot_id.location_id
         destination_location = self.destination_location_id
         owner_employee = destination_location.employee_id if destination_location.code == "employee" else False
-        self.lot_id.with_context(cabochon_inventory_movement=True).write(
+        self.lot_id.with_context(cabochon_inventory_movement=INTERNAL).write(
             {
                 "location_id": destination_location.id,
                 "owner_employee_id": owner_employee.id if owner_employee else False,

@@ -11,30 +11,6 @@ WORKER_OPERATION_QUALITY_REPORT_TABLES = (
 )
 
 
-def _ensure_inventory_columns_and_indexes(cr):
-    if not _table_exists(cr, "cabochon_fraction") or not _table_exists(cr, "cabochon_stone_lot"):
-        return
-    cr.execute("ALTER TABLE cabochon_fraction ADD COLUMN IF NOT EXISTS wash_loss_percent double precision")
-    cr.execute("ALTER TABLE cabochon_stone_lot ADD COLUMN IF NOT EXISTS defect_operation_id integer")
-    cr.execute("DROP INDEX IF EXISTS cabochon_stone_lot_one_active_defect_per_location")
-    cr.execute("DROP INDEX IF EXISTS cabochon_stone_lot_one_active_defect_per_location_operation")
-    cr.execute("DROP INDEX IF EXISTS cabochon_stone_lot_one_active_defect_per_location_operation_shape")
-    cr.execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS cabochon_stone_lot_one_active_defect_per_attributes
-            ON cabochon_stone_lot (
-                location_id,
-                company_id,
-                COALESCE(defect_operation_id, 0),
-                COALESCE(shape_id, 0),
-                COALESCE(form_type_id, 0),
-                COALESCE(color_id, 0)
-            )
-         WHERE is_defect_lot AND state = 'available'
-        """
-    )
-
-
 def _table_exists(cr, table_name):
     cr.execute("SELECT to_regclass(%s)", [table_name])
     return bool(cr.fetchone()[0])
@@ -65,7 +41,6 @@ class CabochonWorkerLoadReport(models.Model):
     last_activity_at = fields.Datetime(string="Последняя активность", readonly=True)
 
     def init(self):
-        _ensure_inventory_columns_and_indexes(self.env.cr)
         if not _tables_exist(self.env.cr, WORKER_LOAD_REPORT_TABLES):
             return
         tools.drop_view_if_exists(self.env.cr, self._table)
@@ -119,6 +94,7 @@ class CabochonWorkerOperationQualityReport(models.Model):
     detected_defect_weight_g = fields.Float(string="Выявленный брак, г", readonly=True, digits=WEIGHT_DIGITS)
     made_defect_weight_g = fields.Float(string="Сделанный брак, г", readonly=True, digits=WEIGHT_DIGITS)
     lost_weight_g = fields.Float(string="Потери, г", readonly=True, digits=WEIGHT_DIGITS)
+    basis_weight_g = fields.Float(string="База процентов: выдача по заявке, г", readonly=True, aggregator=False)
     defect_percent = fields.Float(string="Брак, %", readonly=True, aggregator=False)
     loss_percent = fields.Float(string="Потери, %", readonly=True, aggregator=False)
     total_loss_percent = fields.Float(string="Брак + потери, %", readonly=True, aggregator=False)
@@ -132,7 +108,6 @@ class CabochonWorkerOperationQualityReport(models.Model):
     max_loss_percent = fields.Float(string="Максимальные потери, %", readonly=True, aggregator="max")
 
     def init(self):
-        _ensure_inventory_columns_and_indexes(self.env.cr)
         if not _tables_exist(self.env.cr, WORKER_OPERATION_QUALITY_REPORT_TABLES):
             return
         tools.drop_view_if_exists(self.env.cr, self._table)
@@ -161,30 +136,9 @@ class CabochonWorkerOperationQualityReport(models.Model):
                     LEFT JOIN cabochon_manufacturing_operation primary_operation ON primary_operation.id = movement.primary_operation_id
                     GROUP BY movement.id, movement.primary_operation_id, primary_operation.name, primary_operation.code
                 ),
-                movement_operation_norms AS (
-                    SELECT
-                        movement.id AS movement_id,
-                        CASE
-                            WHEN operation.code IN ('tumble_wash', 'toluene_wash')
-                                 AND fraction.wash_loss_percent > 0.0
-                            THEN fraction.wash_loss_percent
-                            ELSE COALESCE(operation.expected_loss_percent, 0.0)
-                        END AS norm_percent
-                    FROM cabochon_manufacturing_movement movement
-                    JOIN cabochon_movement_operation_rel rel ON rel.movement_id = movement.id
-                    JOIN cabochon_manufacturing_operation operation ON operation.id = rel.operation_id
-                    LEFT JOIN cabochon_stone_lot lot ON lot.id = movement.lot_id
-                    LEFT JOIN cabochon_fraction fraction ON fraction.id = lot.fraction_id
-                ),
                 movement_expected_loss AS (
-                    SELECT
-                        movement_id,
-                        CASE
-                            WHEN BOOL_OR(norm_percent >= 100.0) THEN 100.0
-                            ELSE (1.0 - EXP(SUM(LN(GREATEST(1.0 - norm_percent / 100.0, 0.0000000001))))) * 100.0
-                        END AS expected_loss_percent
-                    FROM movement_operation_norms
-                    GROUP BY movement_id
+                    SELECT id AS movement_id, applied_loss_norm_percent AS expected_loss_percent
+                    FROM cabochon_manufacturing_movement
                 ),
                 quality AS (
                     SELECT
@@ -228,26 +182,35 @@ class CabochonWorkerOperationQualityReport(models.Model):
                     company_id,
                     movement_count,
                     issued_weight_g,
+                    basis_weight_g,
                     received_weight_g,
                     defect_weight_g,
                     detected_defect_weight_g,
                     made_defect_weight_g,
                     lost_weight_g,
-                    CASE WHEN issued_weight_g > 0 THEN defect_weight_g / issued_weight_g * 100.0 ELSE 0.0 END AS defect_percent,
-                    CASE WHEN issued_weight_g > 0 THEN lost_weight_g / issued_weight_g * 100.0 ELSE 0.0 END AS loss_percent,
-                    CASE WHEN issued_weight_g > 0 THEN (defect_weight_g + lost_weight_g) / issued_weight_g * 100.0 ELSE 0.0 END AS total_loss_percent,
+                    CASE WHEN basis_weight_g > 0 THEN defect_weight_g / basis_weight_g * 100.0 ELSE 0.0 END AS defect_percent,
+                    CASE WHEN basis_weight_g > 0 THEN lost_weight_g / basis_weight_g * 100.0 ELSE 0.0 END AS loss_percent,
+                    CASE WHEN basis_weight_g > 0 THEN (defect_weight_g + lost_weight_g) / basis_weight_g * 100.0 ELSE 0.0 END AS total_loss_percent,
                     expected_loss_percent,
                     GREATEST(
-                        CASE WHEN issued_weight_g > 0 THEN lost_weight_g / issued_weight_g * 100.0 ELSE 0.0 END - expected_loss_percent,
+                        CASE WHEN basis_weight_g > 0 THEN lost_weight_g / basis_weight_g * 100.0 ELSE 0.0 END - expected_loss_percent,
                         0.0
                     ) AS loss_over_norm_percent,
-                    CASE WHEN issued_weight_g > 0 THEN defect_weight_g / issued_weight_g * 100.0 ELSE 0.0 END AS avg_defect_percent,
-                    CASE WHEN issued_weight_g > 0 THEN lost_weight_g / issued_weight_g * 100.0 ELSE 0.0 END AS avg_loss_percent,
-                    CASE WHEN issued_weight_g > 0 THEN defect_weight_g / issued_weight_g * 100.0 ELSE 0.0 END AS min_defect_percent,
-                    CASE WHEN issued_weight_g > 0 THEN defect_weight_g / issued_weight_g * 100.0 ELSE 0.0 END AS max_defect_percent,
-                    CASE WHEN issued_weight_g > 0 THEN lost_weight_g / issued_weight_g * 100.0 ELSE 0.0 END AS min_loss_percent,
-                    CASE WHEN issued_weight_g > 0 THEN lost_weight_g / issued_weight_g * 100.0 ELSE 0.0 END AS max_loss_percent
+                    CASE WHEN basis_weight_g > 0 THEN defect_weight_g / basis_weight_g * 100.0 ELSE 0.0 END AS avg_defect_percent,
+                    CASE WHEN basis_weight_g > 0 THEN lost_weight_g / basis_weight_g * 100.0 ELSE 0.0 END AS avg_loss_percent,
+                    CASE WHEN basis_weight_g > 0 THEN defect_weight_g / basis_weight_g * 100.0 ELSE 0.0 END AS min_defect_percent,
+                    CASE WHEN basis_weight_g > 0 THEN defect_weight_g / basis_weight_g * 100.0 ELSE 0.0 END AS max_defect_percent,
+                    CASE WHEN basis_weight_g > 0 THEN lost_weight_g / basis_weight_g * 100.0 ELSE 0.0 END AS min_loss_percent,
+                    CASE WHEN basis_weight_g > 0 THEN lost_weight_g / basis_weight_g * 100.0 ELSE 0.0 END AS max_loss_percent
                 FROM quality
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(SUM(issued.weight_g), 0.0) AS basis_weight_g
+                    FROM cabochon_manufacturing_movement issued
+                    WHERE issued.kind = 'issue'
+                      AND issued.request_id = quality.request_id
+                      AND issued.worker_id = quality.worker_id
+                      AND issued.company_id = quality.company_id
+                ) basis ON TRUE
             )
             """
         )

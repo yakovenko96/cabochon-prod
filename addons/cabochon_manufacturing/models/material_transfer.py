@@ -1,7 +1,9 @@
 from odoo import api, fields, models
+from odoo.addons.cabochon_base.internal import INTERNAL, is_internal
 from odoo.exceptions import UserError
 from odoo.tools.float_utils import float_compare, float_is_zero
 
+from ..inventory import lock_position
 from .constants import (
     DEFECT_LOT_SUFFIX_BY_LOCATION_CODE,
     OPERATION_CODE_SUFFIXES,
@@ -13,6 +15,10 @@ RETURN_LOSS_OPERATION_CODES = {"cnc", "stone_preparation", "cabochon_machine"}
 CUTTING_OPERATION_CODES = {"cutting"}
 TUBE_OPERATION_CODES = {"tubes"}
 WEIGHT_DIGITS = (16, 1)
+TRANSFER_SYSTEM_FIELDS = {
+    "state", "transfer_date", "manager_confirmed_by_id", "worker_confirmed_by_id",
+    "manager_confirmed_at", "worker_confirmed_at", "admin_action_note",
+}
 
 
 class CabochonMaterialTransfer(models.Model):
@@ -114,6 +120,12 @@ class CabochonMaterialTransfer(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        if not is_internal(self.env, "cabochon_transfer_internal_update"):
+            defaults = self.default_get(list(TRANSFER_SYSTEM_FIELDS))
+            for incoming in vals_list:
+                vals = dict(defaults, **incoming)
+                if any(vals.get(key) for key in TRANSFER_SYSTEM_FIELDS - {"state"}) or vals.get("state", "draft") != "draft":
+                    raise UserError("Документ создается только в черновике без подтверждений.")
         sequence = self.env["ir.sequence"]
         for vals in vals_list:
             if vals.get("name", "Новый") == "Новый":
@@ -183,6 +195,8 @@ class CabochonMaterialTransfer(models.Model):
             transfer.can_worker_confirm = bool(is_admin or transfer.worker_id.user_id == self.env.user)
 
     def write(self, vals):
+        if TRANSFER_SYSTEM_FIELDS.intersection(vals) and not is_internal(self.env, "cabochon_transfer_internal_update"):
+            raise UserError("Статус и подтверждения меняются только кнопками документа.")
         internal_fields = {
             "state",
             "transfer_date",
@@ -227,7 +241,7 @@ class CabochonMaterialTransfer(models.Model):
                 continue
             transfer._validate_before_manager_confirm()
             admin_note = transfer._admin_manager_action_note()
-            transfer.with_context(cabochon_transfer_internal_update=True).write(
+            transfer.with_context(cabochon_transfer_internal_update=INTERNAL).write(
                 {
                     "state": "manager_confirmed",
                     "manager_confirmed_by_id": self.env.user.id,
@@ -249,7 +263,7 @@ class CabochonMaterialTransfer(models.Model):
             ):
                 raise UserError("Финально подтвердить документ может только назначенный работник или администратор.")
             transfer.sudo().with_context(
-                cabochon_transfer_internal_update=True,
+                cabochon_transfer_internal_update=INTERNAL,
                 cabochon_admin_worker_action_note=transfer._admin_worker_action_note(),
             )._execute_confirmed_transfer()
 
@@ -263,7 +277,7 @@ class CabochonMaterialTransfer(models.Model):
                 and transfer.worker_id.user_id != self.env.user
             ):
                 raise UserError("Отказаться от выдачи или сдачи может только назначенный работник или администратор.")
-            transfer.with_context(cabochon_transfer_internal_update=True).write(
+            transfer.sudo().with_context(cabochon_transfer_internal_update=INTERNAL).write(
                 {
                     "state": "draft",
                     "manager_confirmed_by_id": False,
@@ -286,7 +300,7 @@ class CabochonMaterialTransfer(models.Model):
     def _execute_confirmed_transfer(self):
         for transfer in self:
             confirmed_at = fields.Datetime.now()
-            transfer.with_context(cabochon_transfer_internal_update=True).write(
+            transfer.with_context(cabochon_transfer_internal_update=INTERNAL).write(
                 {
                     "transfer_date": confirmed_at,
                     "worker_confirmed_at": confirmed_at,
@@ -297,7 +311,7 @@ class CabochonMaterialTransfer(models.Model):
             else:
                 transfer._confirm_receipt()
             admin_note = self.env.context.get("cabochon_admin_worker_action_note")
-            transfer.with_context(cabochon_transfer_internal_update=True).write(
+            transfer.with_context(cabochon_transfer_internal_update=INTERNAL).write(
                 {
                     "state": "confirmed",
                     "worker_confirmed_by_id": self.env.user.id,
@@ -335,6 +349,7 @@ class CabochonMaterialTransfer(models.Model):
 
     def _lock_for_update(self):
         self.ensure_one()
+        self.check_access("read")
         self.env.cr.execute(
             "SELECT id FROM cabochon_material_transfer WHERE id = %s FOR UPDATE",
             [self.id],
@@ -362,7 +377,7 @@ class CabochonMaterialTransfer(models.Model):
             )
             if existing:
                 continue
-            transfer.sudo().with_context(cabochon_activity_system_update=True).activity_schedule(
+            transfer.sudo().with_context(cabochon_activity_system_update=INTERNAL).activity_schedule(
                 activity_type_id=activity_type.id,
                 date_deadline=today,
                 summary=title,
@@ -383,7 +398,7 @@ class CabochonMaterialTransfer(models.Model):
                 ("summary", "in", ("Нужно выдать материалы", "Нужно принять сдачу")),
             ]
         )
-        activities.with_context(cabochon_activity_system_update=True).unlink()
+        activities.with_context(cabochon_activity_system_update=INTERNAL).unlink()
 
     def _notify_worker_activity(self):
         activity_type = self.env.ref("mail.mail_activity_data_todo", raise_if_not_found=False)
@@ -404,7 +419,7 @@ class CabochonMaterialTransfer(models.Model):
                 limit=1,
             )
             if not existing:
-                transfer.sudo().with_context(cabochon_activity_system_update=True).activity_schedule(
+                transfer.sudo().with_context(cabochon_activity_system_update=INTERNAL).activity_schedule(
                     activity_type_id=activity_type.id,
                     date_deadline=today,
                     summary=title,
@@ -425,9 +440,14 @@ class CabochonMaterialTransfer(models.Model):
                 ("summary", "in", ("Нужно принять выдачу", "Нужно подтвердить сдачу")),
             ]
         )
-        activities.with_context(cabochon_activity_system_update=True).unlink()
+        activities.with_context(cabochon_activity_system_update=INTERNAL).unlink()
 
     def _validate_before_manager_confirm(self):
+        for transfer in self:
+            if transfer.request_id and transfer.request_id.company_id != transfer.company_id:
+                raise UserError("Компания документа не совпадает с компанией заявки.")
+            if any(lot.company_id != transfer.company_id for lot in transfer.line_ids.sudo().mapped("lot_id")):
+                raise UserError("Компания исходных мешков не совпадает с компанией документа.")
         self.ensure_one()
         zero_closing_receipt = self._is_zero_closing_receipt()
         if not self.line_ids and not zero_closing_receipt:
@@ -438,7 +458,6 @@ class CabochonMaterialTransfer(models.Model):
             raise UserError("Укажите ответственного менеджера склада.")
         if (
             not self.env.user.has_group("cabochon_base.group_cabochon_admin")
-            and self.manager_id.user_id
             and self.manager_id.user_id != self.env.user
         ):
             raise UserError("Подтвердить документ может только назначенный менеджер склада или администратор.")
@@ -560,14 +579,14 @@ class CabochonMaterialTransfer(models.Model):
                     state="issued",
                     owner_employee=self.worker_id,
                 )
-                lot.sudo().with_context(cabochon_inventory_movement=True).write(
+                lot.sudo().with_context(cabochon_inventory_movement=INTERNAL).write(
                     {
                         "current_weight_g": regular_remaining_weight,
                         "state": "available",
                     }
                 )
             else:
-                lot.sudo().with_context(cabochon_inventory_movement=True).write(
+                lot.sudo().with_context(cabochon_inventory_movement=INTERNAL).write(
                     {
                         "location_id": employee_location.id,
                         "owner_employee_id": self.worker_id.id,
@@ -595,11 +614,11 @@ class CabochonMaterialTransfer(models.Model):
                     issued_lot,
                 )
             )
-            line.with_context(cabochon_transfer_internal_update=True).new_lot_id = issued_lot
+            line.with_context(cabochon_transfer_internal_update=INTERNAL).new_lot_id = issued_lot
             issued_lines.append((issued_lot, line.weight_g))
         if self.request_id and self.request_id.state == "confirmed":
             now = self.transfer_date or fields.Datetime.now()
-            self.request_id.sudo().write(
+            self.request_id.sudo()._workflow_write(
                 {
                     "state": "in_progress",
                     "issued_at": self.request_id.issued_at or now,
@@ -664,7 +683,7 @@ class CabochonMaterialTransfer(models.Model):
         if name:
             values["name"] = name
         return self.env["cabochon.stone.lot"].sudo().with_context(
-            skip_initial_lot_movement=True
+            skip_initial_lot_movement=INTERNAL
         ).create(values)
 
     def _next_inventory_difference_lot_name(self, source_lot):
@@ -702,7 +721,7 @@ class CabochonMaterialTransfer(models.Model):
             source_lot = line.sudo().lot_id or self.request_id.sudo().source_lot_id
             consumed_weight = line.weight_g + line.defect_weight_g + line.return_loss_weight_g + line.lost_weight_g
             new_lot = line._create_received_lot(destination)
-            line.with_context(cabochon_transfer_internal_update=True).new_lot_id = new_lot
+            line.with_context(cabochon_transfer_internal_update=INTERNAL).new_lot_id = new_lot
             if line.weight_g:
                 self.env["cabochon.manufacturing.movement"].sudo().create(
                     self._movement_values(line, "receipt", source_lot, line.weight_g, source_location, destination, new_lot)
@@ -759,7 +778,7 @@ class CabochonMaterialTransfer(models.Model):
                 self.request_id.sudo()._finish_open_operation_lines(self.transfer_date)
             else:
                 self.request_id.sudo()._start_next_operation_line(self.request_id.started_at or self.transfer_date)
-            self.request_id.sudo().write(
+            self.request_id.sudo()._workflow_write(
                 {
                     "state": "done" if close_request else "partially_done",
                     "started_at": self.request_id.started_at or self.transfer_date,
@@ -856,7 +875,7 @@ class CabochonMaterialTransfer(models.Model):
             lots_and_weights = [(source_lot, consumed_weight)] if source_lot else []
         for source_lot, weight in lots_and_weights:
             remaining_weight = source_lot.current_weight_g - weight
-            source_lot.sudo().with_context(cabochon_inventory_movement=True).write(
+            source_lot.sudo().with_context(cabochon_inventory_movement=INTERNAL).write(
                 {
                     "current_weight_g": remaining_weight,
                     "state": "consumed" if float_is_zero(remaining_weight, precision_digits=4) else source_lot.state,
@@ -1037,9 +1056,10 @@ class CabochonMaterialTransferLine(models.Model):
         string="Документ",
         required=True,
         ondelete="cascade",
+        index=True,
     )
     transfer_type = fields.Selection(related="transfer_id.transfer_type", store=True, readonly=True)
-    lot_id = fields.Many2one("cabochon.stone.lot", string="Исходный мешок", ondelete="restrict")
+    lot_id = fields.Many2one("cabochon.stone.lot", string="Исходный мешок", ondelete="restrict", index=True)
     new_lot_id = fields.Many2one("cabochon.stone.lot", string="Новый мешок", readonly=True, copy=False)
     task_line_id = fields.Many2one(
         "cabochon.production.request.task.line",
@@ -1058,10 +1078,10 @@ class CabochonMaterialTransferLine(models.Model):
     lost_weight_g = fields.Float(string="Потери, г", digits=WEIGHT_DIGITS)
     return_loss_weight_g = fields.Float(string="Возвратные потери, г", digits=WEIGHT_DIGITS)
     sort_type = fields.Char(string="Тип сортировки")
-    color_id = fields.Many2one("cabochon.color", string="Цвет", ondelete="restrict")
-    stone_size_id = fields.Many2one("cabochon.size", string="Размер", ondelete="restrict")
-    shape_id = fields.Many2one("cabochon.shape", string="Форма", ondelete="restrict")
-    form_type_id = fields.Many2one("cabochon.form.type", string="Тип формы", ondelete="restrict")
+    color_id = fields.Many2one("cabochon.color", string="Цвет", ondelete="restrict", index=True)
+    stone_size_id = fields.Many2one("cabochon.size", string="Размер", ondelete="restrict", index=True)
+    shape_id = fields.Many2one("cabochon.shape", string="Форма", ondelete="restrict", index=True)
+    form_type_id = fields.Many2one("cabochon.form.type", string="Тип формы", ondelete="restrict", index=True)
     color = fields.Char(string="Цвет (текст)")
     stone_size = fields.Char(string="Размер (текст)")
     shape = fields.Char(string="Форма (текст)")
@@ -1149,7 +1169,7 @@ class CabochonMaterialTransferLine(models.Model):
             if (
                 transfer
                 and transfer.state != "draft"
-                and not self.env.context.get("cabochon_transfer_internal_update")
+                and not is_internal(self.env, "cabochon_transfer_internal_update")
             ):
                 raise UserError("После подтверждения менеджером нельзя добавлять строки документа.")
             self._add_receipt_defaults(vals, transfer)
@@ -1159,8 +1179,8 @@ class CabochonMaterialTransferLine(models.Model):
 
     def write(self, vals):
         if (
-            any(line.transfer_id.state != "draft" for line in self)
-            and not self.env.context.get("cabochon_transfer_internal_update")
+            any(transfer.state != "draft" for transfer in self.mapped("transfer_id") | self.env["cabochon.material.transfer"].browse(vals.get("transfer_id")))
+            and not is_internal(self.env, "cabochon_transfer_internal_update")
         ):
             raise UserError("После подтверждения менеджером строки документа нельзя менять.")
         vals = dict(vals)
@@ -1177,7 +1197,7 @@ class CabochonMaterialTransferLine(models.Model):
     def unlink(self):
         if (
             any(line.transfer_id.state != "draft" for line in self)
-            and not self.env.context.get("cabochon_transfer_internal_update")
+            and not is_internal(self.env, "cabochon_transfer_internal_update")
         ):
             raise UserError("После подтверждения менеджером строки документа нельзя удалить.")
         return super().unlink()
@@ -1428,27 +1448,18 @@ class CabochonMaterialTransferLine(models.Model):
         if destination.code == "finished":
             existing_lot = self._find_finished_lot_to_merge(values, destination)
             if existing_lot:
-                existing_lot.with_context(cabochon_inventory_movement=True).write(
+                existing_lot.with_context(cabochon_inventory_movement=INTERNAL).write(
                     {
                         "initial_weight_g": existing_lot.initial_weight_g + self.weight_g,
                         "current_weight_g": existing_lot.current_weight_g + self.weight_g,
                     }
                 )
                 return existing_lot
-        return self.env["cabochon.stone.lot"].sudo().create(values)
+        return self.env["cabochon.stone.lot"].sudo().with_context(skip_initial_lot_movement=INTERNAL).create(values)
 
     def _find_finished_lot_to_merge(self, values, destination):
         self.ensure_one()
-        domain = [
-            ("location_id", "=", destination.id),
-            ("company_id", "=", self.transfer_id.company_id.id),
-            ("state", "=", "available"),
-            ("is_defect_lot", "=", False),
-        ]
-        for field_name in ("color_id", "stone_size_id", "shape_id", "form_type_id"):
-            value = values.get(field_name)
-            domain.append((field_name, "=", value or False))
-        return self.env["cabochon.stone.lot"].sudo().search(domain, order="id", limit=1)
+        return self.env["cabochon.stone.lot"]._find_finished_position(values)
 
     def _add_to_defect_lot(self, destination, weight_g, source_lot=False):
         self.ensure_one()
@@ -1459,17 +1470,7 @@ class CabochonMaterialTransferLine(models.Model):
         form_type = self.form_type_id or (source_lot.form_type_id if source_lot else False)
         color = self.color_id or (source_lot.color_id if source_lot else False)
         lot_model = self.env["cabochon.stone.lot"].sudo()
-        self.env.cr.execute(
-            "SELECT pg_advisory_xact_lock(%s, %s)",
-            [
-                operation.id if operation else 0,
-                (
-                    (shape.id if shape else 0) * 1000000
-                    + (form_type.id if form_type else 0) * 1000
-                    + (color.id if color else 0)
-                ),
-            ],
-        )
+        lock_position(self.env, "defect", [destination.id, self.transfer_id.company_id.id, operation.id, shape.id if shape else False, form_type.id if form_type else False, color.id if color else False])
         defect_lot = lot_model.search(
             [
                 ("location_id", "=", destination.id),
@@ -1486,7 +1487,7 @@ class CabochonMaterialTransferLine(models.Model):
         )
         if defect_lot:
             defect_lot.invalidate_recordset(["initial_weight_g", "current_weight_g"])
-            defect_lot.with_context(cabochon_inventory_movement=True).write(
+            defect_lot.with_context(cabochon_inventory_movement=INTERNAL).write(
                 {
                     "initial_weight_g": defect_lot.initial_weight_g + weight_g,
                     "current_weight_g": defect_lot.current_weight_g + weight_g,
@@ -1501,7 +1502,8 @@ class CabochonMaterialTransferLine(models.Model):
         shape_suffix = shape.name if shape else "NO-SHAPE"
         form_type_suffix = form_type.name if form_type else "NO-FORM"
         color_suffix = color.name if color else "NO-COLOR"
-        name = f"БРАК-{location_suffix}-{operation_suffix}-{shape_suffix}-{form_type_suffix}-{color_suffix}"
+        sequence = self.env["ir.sequence"].next_by_code("cabochon.stone.lot")
+        name = f"БРАК-{location_suffix}-{operation_suffix}-{shape_suffix}-{form_type_suffix}-{color_suffix}-{sequence}"
         values = {
             "name": name,
             "accepted_by_id": self.transfer_id.manager_id.id if self.transfer_id.manager_id else False,
@@ -1518,7 +1520,7 @@ class CabochonMaterialTransferLine(models.Model):
             "defect_operation_id": operation.id if operation else False,
             "company_id": self.transfer_id.company_id.id,
         }
-        return lot_model.with_context(skip_initial_lot_movement=True).create(values)
+        return lot_model.with_context(skip_initial_lot_movement=INTERNAL).create(values)
 
     def _defect_operation(self):
         self.ensure_one()
@@ -1533,11 +1535,7 @@ class CabochonMaterialTransferLine(models.Model):
             return self.env["cabochon.stone.lot"]
         color = self.color_id or (source_lot.color_id if source_lot else False)
         lot_model = self.env["cabochon.stone.lot"].sudo()
-        lock_color_id = color.id if color else 0
-        self.env.cr.execute(
-            "SELECT pg_advisory_xact_lock(%s, %s)",
-            [operation.id, lock_color_id],
-        )
+        lock_position(self.env, "return_loss", [destination.id, self.transfer_id.company_id.id, operation.id, color.id if color else False])
         return_loss_lot = lot_model.search(
             [
                 ("location_id", "=", destination.id),
@@ -1552,7 +1550,7 @@ class CabochonMaterialTransferLine(models.Model):
         )
         if return_loss_lot:
             return_loss_lot.invalidate_recordset(["initial_weight_g", "current_weight_g"])
-            return_loss_lot.with_context(cabochon_inventory_movement=True).write(
+            return_loss_lot.with_context(cabochon_inventory_movement=INTERNAL).write(
                 {
                     "initial_weight_g": return_loss_lot.initial_weight_g + weight_g,
                     "current_weight_g": return_loss_lot.current_weight_g + weight_g,
@@ -1562,7 +1560,7 @@ class CabochonMaterialTransferLine(models.Model):
         operation_suffix = OPERATION_CODE_SUFFIXES.get(operation.code, operation.code.upper())
         color_name = color.name if color else "NO-COLOR"
         values = {
-            "name": f"RETURN-{operation_suffix}-{color_name}",
+            "name": f"RETURN-{operation_suffix}-{color_name}-{self.env['ir.sequence'].next_by_code('cabochon.stone.lot')}",
             "accepted_by_id": self.transfer_id.manager_id.id if self.transfer_id.manager_id else False,
             "location_id": destination.id,
             "initial_weight_g": weight_g,
@@ -1573,7 +1571,7 @@ class CabochonMaterialTransferLine(models.Model):
             "return_loss_operation_id": operation.id,
             "company_id": self.transfer_id.company_id.id,
         }
-        return lot_model.with_context(skip_initial_lot_movement=True).create(values)
+        return lot_model.with_context(skip_initial_lot_movement=INTERNAL).create(values)
 
     def _next_received_lot_name(self, source_lot, suffix=False):
         if not source_lot:

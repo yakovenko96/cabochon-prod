@@ -219,3 +219,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Production dumps must stay outside tracked source files
+/Prod_*.zip

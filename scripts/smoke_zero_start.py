@@ -4,6 +4,9 @@ from uuid import uuid4
 
 from odoo import fields
 
+if not env.cr.dbname.startswith("Cabochon"):
+    raise RuntimeError("Smoke scenarios require a disposable Cabochon test database.")
+
 suffix = uuid4().hex[:8]
 raw_lot_name = f"SMOKE-RAW-{suffix}"
 finished_lot_name = f"SMOKE-FIN-{suffix}"
@@ -165,10 +168,11 @@ receipt.action_manager_confirm()
 assert receipt.manager_confirmed_at and not receipt.transfer_date
 receipt.action_worker_confirm()
 assert receipt.state == "confirmed" and request.state == "done"
+assert len(request.movement_ids.filtered(lambda movement: movement.kind == "receipt")) == 1
 assert receipt.transfer_date and receipt.worker_confirmed_at
 assert request.first_receipt_at == receipt.transfer_date and request.closed_at == receipt.transfer_date
 
-request.sudo().write({"state": "partially_done", "closed_at": False})
+request.sudo()._workflow_write({"state": "partially_done", "closed_at": False})
 zero_receipt = env["cabochon.material.transfer"].sudo().create(
     {
         "transfer_type": "receipt",

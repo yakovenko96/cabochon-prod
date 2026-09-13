@@ -1,7 +1,9 @@
 from odoo import api, fields, models
+from odoo.addons.cabochon_base.internal import is_internal
 from odoo.exceptions import UserError, ValidationError
 from odoo.tools.float_utils import float_compare, float_is_zero
 
+from ..inventory import lock_position
 from .constants import EXTRACTION_MONTHS
 
 WEIGHT_DIGITS = (16, 1)
@@ -13,9 +15,15 @@ class CabochonStoneLot(models.Model):
     _description = "Партия/мешок камней"
     _order = "receipt_date desc, id desc"
 
+    def init(self):
+        self.env.cr.execute("CREATE TABLE IF NOT EXISTS cabochon_inventory_guard (key text PRIMARY KEY, revision bigint NOT NULL)")
+
     name = fields.Char(string="ID мешка", default="Новый", required=True, copy=False, tracking=True)
     barcode = fields.Char(string="Штрихкод/QR", copy=False, readonly=True, index=True)
-    parent_id = fields.Many2one("cabochon.stone.lot", string="Исходный мешок", ondelete="restrict")
+    parent_id = fields.Many2one("cabochon.stone.lot", string="Исходный мешок", ondelete="restrict", index=True)
+    reserved_request_id = fields.Many2one("cabochon.production.request", string="Резерв заявки", readonly=True, index=True, ondelete="restrict", copy=False)
+    is_finished_stock = fields.Boolean(compute="_compute_is_finished_stock", store=True)
+
     source_lot_ids = fields.Many2many(
         "cabochon.stone.lot",
         "cabochon_stone_lot_mixed_source_rel",
@@ -56,10 +64,10 @@ class CabochonStoneLot(models.Model):
         compute="_compute_security_manager_user_ids",
         store=True,
     )
-    supplier_id = fields.Many2one("cabochon.supplier", string="Поставщик", ondelete="restrict")
+    supplier_id = fields.Many2one("cabochon.supplier", string="Поставщик", ondelete="restrict", index=True)
     supplier_name = fields.Char(string="Поставщик (текст)")
     fraction = fields.Char(string="Фракция (текст)")
-    fraction_id = fields.Many2one("cabochon.fraction", string="Фракция", ondelete="restrict")
+    fraction_id = fields.Many2one("cabochon.fraction", string="Фракция", ondelete="restrict", index=True)
     extraction_year = fields.Integer(string="Год добычи (число)")
     extraction_year_id = fields.Many2one(
         "cabochon.extraction.year",
@@ -69,7 +77,7 @@ class CabochonStoneLot(models.Model):
     extraction_month = fields.Selection(EXTRACTION_MONTHS, string="Месяц добычи")
     waybill_number = fields.Char(string="Номер накладной")
     receipt_date = fields.Datetime(string="Дата поступления", default=fields.Datetime.now)
-    accepted_by_id = fields.Many2one("hr.employee", string="Кто принял", ondelete="restrict")
+    accepted_by_id = fields.Many2one("hr.employee", string="Кто принял", ondelete="restrict", index=True)
     location_id = fields.Many2one(
         "cabochon.manufacturing.location",
         string="Текущая зона",
@@ -86,10 +94,10 @@ class CabochonStoneLot(models.Model):
         digits=(16, 2),
     )
     standard_weight_g = fields.Float(string="Эталонный вес 1 шт., г", digits=(16, 4), tracking=True)
-    color_id = fields.Many2one("cabochon.color", string="Цвет", ondelete="restrict")
-    stone_size_id = fields.Many2one("cabochon.size", string="Размер", ondelete="restrict")
-    shape_id = fields.Many2one("cabochon.shape", string="Форма", ondelete="restrict")
-    form_type_id = fields.Many2one("cabochon.form.type", string="Тип формы", ondelete="restrict")
+    color_id = fields.Many2one("cabochon.color", string="Цвет", ondelete="restrict", index=True)
+    stone_size_id = fields.Many2one("cabochon.size", string="Размер", ondelete="restrict", index=True)
+    shape_id = fields.Many2one("cabochon.shape", string="Форма", ondelete="restrict", index=True)
+    form_type_id = fields.Many2one("cabochon.form.type", string="Тип формы", ondelete="restrict", index=True)
     return_loss_operation_id = fields.Many2one(
         "cabochon.manufacturing.operation",
         string="Операция возвратных потерь",
@@ -127,8 +135,25 @@ class CabochonStoneLot(models.Model):
         index=True,
     )
 
+    @api.depends("location_id.code", "is_defect_lot", "is_return_loss_lot")
+    def _compute_is_finished_stock(self):
+        for lot in self:
+            lot.is_finished_stock = lot.location_id.code == "finished" and not lot.is_defect_lot and not lot.is_return_loss_lot
+
+    @api.model
+    def _find_finished_position(self, values):
+        location_id = values["location_id"]
+        company_id = values.get("company_id") or self.env.company.id
+        attributes = [values.get(key) or False for key in ("color_id", "stone_size_id", "shape_id", "form_type_id")]
+        lock_position(self.env, "finished", [location_id, company_id, *attributes])
+        domain = [("location_id", "=", location_id), ("company_id", "=", company_id), ("state", "=", "available"), ("is_defect_lot", "=", False), ("is_return_loss_lot", "=", False)]
+        domain += list(zip(("color_id", "stone_size_id", "shape_id", "form_type_id"), ["="] * 4, attributes, strict=True))
+        return self.sudo().search(domain, order="id", limit=1)
+
     @api.model_create_multi
     def create(self, vals_list):
+        if not is_internal(self.env, "cabochon_inventory_movement") and any(vals.get("reserved_request_id") for vals in vals_list):
+            raise UserError("Резерв устанавливается только заявкой.")
         sequence = self.env["ir.sequence"]
         for vals in vals_list:
             self._sync_extraction_year_values(vals)
@@ -141,7 +166,7 @@ class CabochonStoneLot(models.Model):
             if not vals.get("current_weight_g") and vals.get("initial_weight_g"):
                 vals["current_weight_g"] = vals["initial_weight_g"]
         lots = super().create(vals_list)
-        if not self.env.context.get("skip_initial_lot_movement"):
+        if not is_internal(self.env, "skip_initial_lot_movement"):
             lots._create_initial_receipt_movements()
         return lots
 
@@ -149,10 +174,12 @@ class CabochonStoneLot(models.Model):
         if (
             self.env.user.has_group("cabochon_base.group_cabochon_finished_manager")
             and not self.env.user.has_group("cabochon_base.group_cabochon_admin")
+            and not is_internal(self.env, "cabochon_inventory_movement")
             and set(vals) - {"standard_weight_g"}
         ):
             raise UserError("Менеджер готового склада может менять в складской позиции только эталонный вес.")
         protected_fields = {
+            "reserved_request_id",
             "barcode",
             "parent_id",
             "location_id",
@@ -161,7 +188,7 @@ class CabochonStoneLot(models.Model):
             "current_weight_g",
             "state",
         }
-        if protected_fields.intersection(vals) and not self.env.context.get("cabochon_inventory_movement"):
+        if protected_fields.intersection(vals) and not is_internal(self.env, "cabochon_inventory_movement"):
             raise UserError(
                 "Наличие, вес и склад мешка нельзя редактировать вручную. "
                 "Создайте выдачу, сдачу или корректирующее движение."
