@@ -1,6 +1,8 @@
+import math
+
 from odoo import api, fields, models
 from odoo.addons.cabochon_base.internal import INTERNAL, is_internal
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 from odoo.tools.float_utils import float_compare, float_is_zero
 
 from ..inventory import lock_position
@@ -11,13 +13,13 @@ from .constants import (
 )
 
 MACHINE_OPERATION_CODES = {"cnc", "cabochon_machine", "ball_machine"}
-RETURN_LOSS_OPERATION_CODES = {"cnc", "stone_preparation", "cabochon_machine"}
+RETURN_LOSS_OPERATION_CODES = {"cutting"}
 CUTTING_OPERATION_CODES = {"cutting"}
 TUBE_OPERATION_CODES = {"tubes"}
 WEIGHT_DIGITS = (16, 1)
 TRANSFER_SYSTEM_FIELDS = {
     "state", "transfer_date", "manager_confirmed_by_id", "worker_confirmed_by_id",
-    "manager_confirmed_at", "worker_confirmed_at", "admin_action_note",
+    "manager_confirmed_at", "worker_confirmed_at", "admin_action_note", "toluene_consumption_recorded", "is_toluene_wash",
 }
 
 
@@ -36,6 +38,7 @@ class CabochonMaterialTransfer(models.Model):
         tracking=True,
     )
     request_id = fields.Many2one("cabochon.production.request", string="Заявка", ondelete="restrict", tracking=True)
+    request_state = fields.Selection(related="request_id.state", string="Статус заявки")
     worker_id = fields.Many2one("hr.employee", string="Работник", ondelete="restrict", tracking=True)
     manager_id = fields.Many2one(
         "hr.employee",
@@ -99,6 +102,9 @@ class CabochonMaterialTransfer(models.Model):
         string="Возвратные потери, г", compute="_compute_totals", store=True, digits=WEIGHT_DIGITS
     )
     is_final_receipt = fields.Boolean(string="Окончательная сдача")
+    is_toluene_wash = fields.Boolean(compute="_compute_is_toluene_wash", store=True)
+    toluene_consumption_l = fields.Float(string="Расход толуола, л", digits=(16, 3), copy=False)
+    toluene_consumption_recorded = fields.Boolean(string="Расход толуола учтен", readonly=True, copy=False)
     show_sort_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
     show_tube_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
     show_press_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
@@ -109,6 +115,7 @@ class CabochonMaterialTransfer(models.Model):
     show_form_type_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
     show_cutting_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
     show_return_loss_fields = fields.Boolean(compute="_compute_receipt_field_visibility")
+    show_task_fields = fields.Boolean(related="request_id.show_task_lines")
     can_worker_confirm = fields.Boolean(compute="_compute_can_worker_confirm")
     company_id = fields.Many2one(
         "res.company",
@@ -120,6 +127,8 @@ class CabochonMaterialTransfer(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        for vals in vals_list:
+            self._check_toluene_input(vals)
         if not is_internal(self.env, "cabochon_transfer_internal_update"):
             defaults = self.default_get(list(TRANSFER_SYSTEM_FIELDS))
             for incoming in vals_list:
@@ -194,7 +203,32 @@ class CabochonMaterialTransfer(models.Model):
         for transfer in self:
             transfer.can_worker_confirm = bool(is_admin or transfer.worker_id.user_id == self.env.user)
 
+    @api.depends("transfer_type", "operation_ids.code")
+    def _compute_is_toluene_wash(self):
+        for transfer in self:
+            transfer.is_toluene_wash = transfer.transfer_type == "receipt" and "toluene_wash" in transfer.operation_ids.mapped("code")
+
+    @api.constrains("toluene_consumption_l", "operation_ids", "transfer_type")
+    def _check_toluene_consumption(self):
+        for transfer in self:
+            if not math.isfinite(transfer.toluene_consumption_l) or transfer.toluene_consumption_l < 0:
+                raise ValidationError("Расход толуола должен быть конечным неотрицательным числом.")
+            if transfer.toluene_consumption_l and not transfer.is_toluene_wash:
+                raise ValidationError("Расход толуола можно указывать только в сдаче после мойки в толуоле.")
+
+    @api.model
+    def _check_toluene_input(self, values):
+        if "toluene_consumption_l" in values:
+            try:
+                amount = float(values["toluene_consumption_l"] or 0)
+                valid = math.isfinite(amount) and amount >= 0
+            except (TypeError, ValueError):
+                valid = False
+            if not valid:
+                raise ValidationError("Расход толуола должен быть конечным неотрицательным числом.")
+
     def write(self, vals):
+        self._check_toluene_input(vals)
         if TRANSFER_SYSTEM_FIELDS.intersection(vals) and not is_internal(self.env, "cabochon_transfer_internal_update"):
             raise UserError("Статус и подтверждения меняются только кнопками документа.")
         internal_fields = {
@@ -205,10 +239,14 @@ class CabochonMaterialTransfer(models.Model):
             "manager_confirmed_at",
             "worker_confirmed_at",
             "admin_action_note",
+            "toluene_consumption_recorded",
         }
         if set(vals) - internal_fields and any(record.state != "draft" for record in self):
             raise UserError("Выдачу/сдачу после подтверждения менеджером нельзя менять.")
         result = super().write(vals)
+        if {"is_final_receipt", "weight_before_g"}.intersection(vals):
+            for transfer in self.filtered(lambda item: item.state == "draft"):
+                transfer._set_receipt_loss_weights(validate=False)
         if {"manager_id", "state", "transfer_type", "request_id"}.intersection(vals):
             self._clear_manager_activities()
             self._notify_manager_activity()
@@ -229,7 +267,7 @@ class CabochonMaterialTransfer(models.Model):
             self.weight_before_g = self._default_weight_before()
         self.manager_id = self._get_warehouse_manager()
 
-    @api.onchange("line_ids")
+    @api.onchange("line_ids", "is_final_receipt", "weight_before_g")
     def _onchange_line_ids(self):
         for transfer in self.filtered(lambda item: item.transfer_type != "issue"):
             transfer._set_receipt_loss_weights()
@@ -272,6 +310,7 @@ class CabochonMaterialTransfer(models.Model):
             transfer._lock_for_update()
             if transfer.state != "manager_confirmed":
                 continue
+            transfer._check_request_context()
             if (
                 not self.env.user.has_group("cabochon_base.group_cabochon_admin")
                 and transfer.worker_id.user_id != self.env.user
@@ -299,6 +338,8 @@ class CabochonMaterialTransfer(models.Model):
 
     def _execute_confirmed_transfer(self):
         for transfer in self:
+            transfer._lock_source_lots()
+            transfer._validate_before_manager_confirm(check_manager=False)
             confirmed_at = fields.Datetime.now()
             transfer.with_context(cabochon_transfer_internal_update=INTERNAL).write(
                 {
@@ -315,6 +356,7 @@ class CabochonMaterialTransfer(models.Model):
                 {
                     "state": "confirmed",
                     "worker_confirmed_by_id": self.env.user.id,
+                    "toluene_consumption_recorded": transfer.is_toluene_wash,
                     "admin_action_note": transfer._append_admin_action_note(admin_note),
                 }
             )
@@ -350,11 +392,74 @@ class CabochonMaterialTransfer(models.Model):
     def _lock_for_update(self):
         self.ensure_one()
         self.check_access("read")
+        # Use the same order as cancellation: request, document, then material.
+        # Workers may read their request without having general write access.
+        if self.request_id:
+            self.env.cr.execute("SELECT id FROM cabochon_production_request WHERE id = %s FOR UPDATE", [self.request_id.id])
+            self.request_id.invalidate_recordset()
         self.env.cr.execute(
             "SELECT id FROM cabochon_material_transfer WHERE id = %s FOR UPDATE",
             [self.id],
         )
         self.invalidate_recordset(["state"])
+
+    def _lock_source_lots(self):
+        lots = self.line_ids.sudo().mapped("lot_id")
+        if self.request_id.issue_id:
+            lines = self.request_id.sudo().issue_id.line_ids
+            lots |= lines.mapped("lot_id") | lines.mapped("new_lot_id")
+        if lots:
+            self.env.cr.execute("SELECT id FROM cabochon_stone_lot WHERE id IN %s ORDER BY id FOR UPDATE", [tuple(lots.ids)])
+            lots.invalidate_recordset()
+
+    def _check_request_context(self):
+        self.ensure_one()
+        request = self.request_id
+        if not request:
+            return
+        allowed_states = ("confirmed",) if self.transfer_type == "issue" else ("in_progress", "partially_done")
+        if request.state not in allowed_states:
+            raise UserError("Нельзя провести документ: заявка отменена, закрыта или еще не готова к этому действию.")
+        if request.worker_id != self.worker_id or set(request.operation_ids.ids) != set(self.operation_ids.ids):
+            raise UserError("Работник и операции документа должны совпадать с заявкой.")
+        if self.transfer_type == "issue":
+            if request.issue_id != self:
+                raise UserError("Выдача должна быть основным документом выдачи заявки.")
+            sources = request.source_lot_id | request.additional_source_line_ids.mapped("lot_id")
+            if set(self.line_ids.sudo().mapped("lot_id").ids) != set(sources.ids):
+                raise UserError("Исходные мешки выдачи должны совпадать с заявкой.")
+        elif not request.issue_id or request.issue_id.state != "confirmed":
+            raise UserError("Для сдачи необходима подтвержденная выдача по заявке.")
+
+    def _check_issue_lots(self):
+        for line in self.line_ids.sudo():
+            lot = line.lot_id
+            if not lot or lot.state != "available" or lot.owner_employee_id or lot.location_id.code in ("employee", "loss"):
+                raise UserError("Выдать можно только доступный мешок на складе без назначенного работника.")
+            if lot.location_id.manager_id != self.manager_id:
+                raise UserError("Все мешки выдачи должны находиться на складе назначенного менеджера.")
+            if lot.reserved_request_id and lot.reserved_request_id != self.request_id:
+                raise UserError("Мешок зарезервирован другой заявкой и недоступен для этой выдачи.")
+
+    def _check_receipt_sources(self, lines):
+        lots = lines.sudo().mapped("lot_id")
+        if any(not line.lot_id for line in lines):
+            raise UserError("Для ненулевой сдачи укажите исходный мешок, выданный работнику.")
+        if self.request_id:
+            issued = self.request_id.sudo().issue_id.line_ids
+            issued_lots = issued.mapped("new_lot_id") | issued.mapped("lot_id")
+        else:
+            # Standalone receipts still require an actual confirmed issue.
+            movements = self.env["cabochon.manufacturing.movement"].sudo().search([
+                ("kind", "=", "issue"), ("transfer_id.state", "=", "confirmed"),
+                ("worker_id", "=", self.worker_id.id), ("company_id", "=", self.company_id.id),
+                "|", ("lot_id", "in", lots.ids), ("new_lot_id", "in", lots.ids),
+            ])
+            issued_lots = self.env["cabochon.stone.lot"]
+            for movement in movements:
+                issued_lots |= movement.new_lot_id or movement.lot_id
+        if lots - issued_lots:
+            raise UserError("Исходный мешок сдачи не относится к подтвержденной выдаче этого работника.")
 
     def _notify_manager_activity(self):
         activity_type = self.env.ref("mail.mail_activity_data_todo", raise_if_not_found=False)
@@ -442,8 +547,11 @@ class CabochonMaterialTransfer(models.Model):
         )
         activities.with_context(cabochon_activity_system_update=INTERNAL).unlink()
 
-    def _validate_before_manager_confirm(self):
+    def _validate_before_manager_confirm(self, check_manager=True):
+        self._check_request_context()
         for transfer in self:
+            if transfer.company_id not in self.env.companies:
+                raise UserError("Компания документа недоступна пользователю.")
             if transfer.request_id and transfer.request_id.company_id != transfer.company_id:
                 raise UserError("Компания документа не совпадает с компанией заявки.")
             if any(lot.company_id != transfer.company_id for lot in transfer.line_ids.sudo().mapped("lot_id")):
@@ -457,26 +565,25 @@ class CabochonMaterialTransfer(models.Model):
         if not self.manager_id:
             raise UserError("Укажите ответственного менеджера склада.")
         if (
-            not self.env.user.has_group("cabochon_base.group_cabochon_admin")
+            check_manager
+            and not self.env.user.has_group("cabochon_base.group_cabochon_admin")
             and self.manager_id.user_id != self.env.user
         ):
             raise UserError("Подтвердить документ может только назначенный менеджер склада или администратор.")
         if self.transfer_type != "issue" and not zero_closing_receipt:
             self._set_receipt_loss_weights()
-        validation_lines = self.line_ids if self.transfer_type == "issue" else self._active_receipt_line_ids()
+        validation_lines = self.env["cabochon.material.transfer.line"] if zero_closing_receipt else (
+            self.line_ids if self.transfer_type == "issue" else self._active_receipt_line_ids()
+        )
         if self.transfer_type != "issue" and not validation_lines and not zero_closing_receipt:
             raise UserError("В сдаче укажите хотя бы одну строку с годным весом, браком или потерями.")
         for line in validation_lines.with_context(skip_receipt_auto_loss=True):
             line._validate_amounts()
         if self.transfer_type == "issue":
-            lot_ids = self.line_ids.mapped("lot_id").ids
+            lot_ids = [line.lot_id.id for line in self.line_ids]
             if len(lot_ids) != len(set(lot_ids)):
                 raise UserError("Один мешок нельзя указывать в выдаче несколько раз.")
-            foreign_lots = self.line_ids.mapped("lot_id").filtered(
-                lambda lot: lot.location_id.manager_id != self.manager_id
-            )
-            if foreign_lots:
-                raise UserError("Все мешки выдачи должны находиться на складе назначенного менеджера.")
+            self._check_issue_lots()
             if self.request_id:
                 overweight_lines = self.line_ids.filtered(
                     lambda line: self._planned_issue_weight_for_line(line)
@@ -487,6 +594,7 @@ class CabochonMaterialTransfer(models.Model):
                 if overweight_lines:
                     raise UserError("Фактический вес выдачи не может превышать вес, заявленный технологом, если заявлен весь мешок.")
         elif not zero_closing_receipt:
+            self._check_receipt_sources(validation_lines)
             unavailable_lots = validation_lines.mapped("lot_id").filtered(
                 lambda lot: lot.owner_employee_id != self.worker_id
                 or lot.state != "issued"
@@ -500,7 +608,7 @@ class CabochonMaterialTransfer(models.Model):
             )
             if foreign_lots:
                 raise UserError("Работник может сдавать только мешки, выданные ему.")
-        if zero_closing_receipt:
+        if zero_closing_receipt and not self.is_final_receipt:
             self.is_final_receipt = True
 
     def _is_zero_closing_receipt(self):
@@ -701,6 +809,7 @@ class CabochonMaterialTransfer(models.Model):
         destination = self._get_destination_location()
         defect_destination = self._get_defect_destination_location(destination)
         loss_destination = self._get_loss_destination_location()
+        return_loss_destination = self._get_stage_location("semi_finished")
         source_location = self._get_employee_location(self.worker_id)
         zero_closing_receipt = self._is_zero_closing_receipt()
         if not zero_closing_receipt:
@@ -759,7 +868,7 @@ class CabochonMaterialTransfer(models.Model):
                     self._movement_values(line, "loss", source_lot, line.lost_weight_g, source_location, loss_destination)
                 )
             if line.return_loss_weight_g:
-                return_loss_lot = line._add_to_return_loss_lot(loss_destination, line.return_loss_weight_g, source_lot)
+                return_loss_lot = line._add_to_return_loss_lot(return_loss_destination, line.return_loss_weight_g, source_lot)
                 self.env["cabochon.manufacturing.movement"].sudo().create(
                     self._movement_values(
                         line,
@@ -767,14 +876,18 @@ class CabochonMaterialTransfer(models.Model):
                         source_lot,
                         line.return_loss_weight_g,
                         source_location,
-                        loss_destination,
+                        return_loss_destination,
                         return_loss_lot,
                     )
                 )
             self._consume_receipt_line_source_lots(line, consumed_weight)
         if self.request_id and self.request_id.state in ("in_progress", "partially_done"):
-            close_request = self.is_final_receipt or self.primary_operation_id.code in ("tumble_wash", "toluene_wash")
+            close_request = self.is_final_receipt
             if close_request:
+                if self.request_id.sudo()._open_issued_lots_for_receipt():
+                    raise UserError("Нельзя закрыть заявку: у работника остались выданные мешки с положительным весом.")
+                if self.request_id.receipt_ids.filtered(lambda item: item != self and item.transfer_type == "receipt" and item.state != "confirmed"):
+                    raise UserError("Перед закрытием заявки завершите остальные сдачи.")
                 self.request_id.sudo()._finish_open_operation_lines(self.transfer_date)
             else:
                 self.request_id.sudo()._start_next_operation_line(self.request_id.started_at or self.transfer_date)
@@ -792,12 +905,14 @@ class CabochonMaterialTransfer(models.Model):
             else:
                 self.request_id.sudo().with_context(exclude_receipt_transfer_id=self.id)._ensure_receipt_transfer()
 
-    def _set_receipt_loss_weights(self):
+    def _set_receipt_loss_weights(self, validate=True):
         self.ensure_one()
-        if self.transfer_type == "issue":
+        if self.transfer_type == "issue" or self._is_zero_closing_receipt():
             return
         if not self.weight_before_g:
-            self.weight_before_g = self._default_weight_before()
+            default_weight = self._default_weight_before()
+            if default_weight:
+                self.weight_before_g = default_weight
         grouped_lines = {}
         lines_to_process = self.line_ids.filtered(
             lambda line: any(
@@ -836,7 +951,7 @@ class CabochonMaterialTransfer(models.Model):
             good_weight = sum(lines.mapped("weight_g"))
             defect_weight = sum(lines.mapped("defect_weight_g"))
             return_loss_weight = sum(lines.mapped("return_loss_weight_g"))
-            if float_compare(good_weight + defect_weight + return_loss_weight, input_weight, precision_digits=4) > 0:
+            if validate and float_compare(good_weight + defect_weight + return_loss_weight, input_weight, precision_digits=4) > 0:
                 raise UserError(
                     f"По мешку {source_lot.display_name} сумма годного веса и брака не может быть больше веса на входе."
                 )
@@ -909,7 +1024,7 @@ class CabochonMaterialTransfer(models.Model):
     def _movement_values(self, line, kind, lot, weight, source_location, destination_location, new_lot=False, defect_kind=False):
         movement_operations = self.operation_ids
         primary_operation = self.primary_operation_id
-        if kind == "defect" and line._defect_operation():
+        if (kind == "defect" or (kind == "loss" and new_lot and new_lot.is_return_loss_lot)) and line._defect_operation():
             movement_operations = line._defect_operation()
             primary_operation = line._defect_operation()
         note_parts = [
@@ -1087,6 +1202,13 @@ class CabochonMaterialTransferLine(models.Model):
     shape = fields.Char(string="Форма (текст)")
     form_type = fields.Char(string="Тип формы (текст)")
     operation_code = fields.Char(related="transfer_id.primary_operation_id.code", store=True, readonly=True)
+    task_operation_id = fields.Many2one(related="task_line_id.operation_id", string="Операция задачи")
+    show_color_fields = fields.Boolean(compute="_compute_line_visibility")
+    require_color_fields = fields.Boolean(compute="_compute_line_visibility")
+    show_size_fields = fields.Boolean(compute="_compute_line_visibility")
+    show_shape_fields = fields.Boolean(compute="_compute_line_visibility")
+    show_form_type_fields = fields.Boolean(compute="_compute_line_visibility")
+    show_return_loss_fields = fields.Boolean(compute="_compute_line_visibility")
     eligible_stone_size_ids = fields.Many2many(
         "cabochon.size",
         compute="_compute_eligible_reference_ids",
@@ -1112,13 +1234,29 @@ class CabochonMaterialTransferLine(models.Model):
         for line in self:
             line.defect_weight_g = line.detected_defect_weight_g + line.made_defect_weight_g
 
-    @api.depends("transfer_id.operation_ids.code")
+    def _receipt_operations(self):
+        self.ensure_one()
+        return self.task_line_id.operation_id or self.transfer_id.operation_ids
+
+    @api.depends("task_line_id.operation_id.code", "transfer_id.operation_ids.code", "transfer_type")
+    def _compute_line_visibility(self):
+        for line in self:
+            codes = set(line._receipt_operations().mapped("code"))
+            receipt = line.transfer_type == "receipt"
+            line.show_color_fields = receipt and not bool(codes & TUBE_OPERATION_CODES)
+            line.require_color_fields = receipt and bool(codes & set(SORT_OPERATION_TYPES))
+            line.show_size_fields = receipt and bool(codes & (set(SORT_OPERATION_TYPES) | TUBE_OPERATION_CODES | MACHINE_OPERATION_CODES | CUTTING_OPERATION_CODES | {"press", "drilling"}))
+            line.show_shape_fields = receipt and bool(codes & (MACHINE_OPERATION_CODES | CUTTING_OPERATION_CODES | {"press"}))
+            line.show_form_type_fields = receipt and bool(codes & MACHINE_OPERATION_CODES)
+            line.show_return_loss_fields = receipt and bool(codes & RETURN_LOSS_OPERATION_CODES)
+
+    @api.depends("transfer_id.operation_ids.code", "task_line_id.operation_id.code")
     def _compute_eligible_reference_ids(self):
         size_model = self.env["cabochon.size"].sudo()
         shape_model = self.env["cabochon.shape"].sudo()
         form_type_model = self.env["cabochon.form.type"].sudo()
         for line in self:
-            codes = set(line.transfer_id.operation_ids.mapped("code"))
+            codes = set(line._receipt_operations().mapped("code"))
             size_flags = []
             shape_flags = []
             if codes & {"manual_sorting", "auto_separator"}:
@@ -1175,7 +1313,9 @@ class CabochonMaterialTransferLine(models.Model):
             self._add_receipt_defaults(vals, transfer)
             self.env["cabochon.stone.lot"]._sync_reference_values(vals)
             self._add_auto_loss_to_values(vals)
-        return super().create(vals_list)
+        lines = super().create(vals_list)
+        lines._refresh_draft_receipt_losses()
+        return lines
 
     def write(self, vals):
         if (
@@ -1191,8 +1331,19 @@ class CabochonMaterialTransferLine(models.Model):
                 line_vals = dict(vals)
                 line._add_auto_loss_to_values(line_vals)
                 super(CabochonMaterialTransferLine, line).write(line_vals)
+            self._refresh_draft_receipt_losses()
             return True
-        return super().write(vals)
+        previous_transfers = self.mapped("transfer_id") if "transfer_id" in vals else self.env["cabochon.material.transfer"]
+        result = super().write(vals)
+        if self._loss_trigger_fields(vals) or "transfer_id" in vals:
+            self._refresh_draft_receipt_losses()
+            for transfer in previous_transfers.filtered(lambda item: item.state == "draft"):
+                transfer._set_receipt_loss_weights(validate=False)
+        return result
+
+    def _refresh_draft_receipt_losses(self):
+        for transfer in self.mapped("transfer_id").filtered(lambda item: item.state == "draft"):
+            transfer._set_receipt_loss_weights(validate=False)
 
     def unlink(self):
         if (
@@ -1200,7 +1351,11 @@ class CabochonMaterialTransferLine(models.Model):
             and not is_internal(self.env, "cabochon_transfer_internal_update")
         ):
             raise UserError("После подтверждения менеджером строки документа нельзя удалить.")
-        return super().unlink()
+        transfers = self.mapped("transfer_id")
+        result = super().unlink()
+        for transfer in transfers.filtered(lambda item: item.state == "draft"):
+            transfer._set_receipt_loss_weights(validate=False)
+        return result
 
     @api.onchange("lot_id")
     def _onchange_lot_id(self):
@@ -1338,9 +1493,14 @@ class CabochonMaterialTransferLine(models.Model):
             consumed_weight = self.weight_g + self.defect_weight_g + self.return_loss_weight_g + self.lost_weight_g
             if float_compare(consumed_weight, self.weight_before_g, precision_digits=4) > 0:
                 raise UserError("Сумма годного веса, брака и потерь не может быть больше исходного веса.")
-        if self.return_loss_weight_g and not (set(self.transfer_id.operation_ids.mapped("code")) & RETURN_LOSS_OPERATION_CODES):
-            raise UserError("Возвратные потери можно указывать только для ЧПУ, подготовки камня и кабошонерки.")
+        if self.return_loss_weight_g and self._defect_operation().code not in RETURN_LOSS_OPERATION_CODES:
+            raise UserError("Возвратные потери (обрезки) можно указывать только для операции раскроя.")
         if self.transfer_type == "receipt":
+            if self.task_line_id and (
+                not self.transfer_id.request_id or self.task_line_id.request_id != self.transfer_id.request_id
+                or self.task_line_id.operation_id not in self.transfer_id.operation_ids
+            ):
+                raise UserError("Задача строки сдачи должна принадлежать этой заявке и ее маршруту.")
             self._validate_required_receipt_attributes()
 
     def _validate_required_receipt_attributes(self):
@@ -1350,8 +1510,9 @@ class CabochonMaterialTransferLine(models.Model):
             precision_digits=4,
         ):
             return
-        operation_code = self.transfer_id.primary_operation_id.code if self.transfer_id.primary_operation_id else False
-        operation_codes = set(self.transfer_id.operation_ids.mapped("code"))
+        operations = self._receipt_operations()
+        operation_code = operations.sorted("sequence")[-1:].code if operations else False
+        operation_codes = set(operations.mapped("code"))
         if operation_code in ("manual_sorting", "auto_separator"):
             missing = []
             if not self.color_id:
@@ -1530,7 +1691,7 @@ class CabochonMaterialTransferLine(models.Model):
         self.ensure_one()
         if float_is_zero(weight_g, precision_digits=4):
             return self.env["cabochon.stone.lot"]
-        operation = self.transfer_id.primary_operation_id
+        operation = self._defect_operation()
         if not operation or operation.code not in RETURN_LOSS_OPERATION_CODES:
             return self.env["cabochon.stone.lot"]
         color = self.color_id or (source_lot.color_id if source_lot else False)

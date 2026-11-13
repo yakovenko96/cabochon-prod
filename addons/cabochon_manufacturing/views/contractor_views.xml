@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_contractor_list" model="ir.ui.view">
+        <field name="name">cabochon.contractor.list</field>
+        <field name="model">res.partner</field>
+        <field name="arch" type="xml">
+            <list class="o_cabochon_list"><field name="name"/><field name="phone" optional="hide"/><field name="company_id" groups="base.group_multi_company"/></list>
+        </field>
+    </record>
+    <record id="view_contractor_form" model="ir.ui.view">
+        <field name="name">cabochon.contractor.form</field>
+        <field name="model">res.partner</field>
+        <field name="arch" type="xml">
+            <form string="Контрагент">
+                <sheet><group>
+                    <field name="name"/>
+                    <field name="is_cabochon_contractor" invisible="1"/>
+                    <field name="phone"/>
+                    <field name="company_id" groups="base.group_multi_company"/>
+                    <field name="active"/>
+                </group></sheet>
+            </form>
+        </field>
+    </record>
+    <record id="action_contractors" model="ir.actions.act_window">
+        <field name="name">Контрагенты производства</field>
+        <field name="res_model">res.partner</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" ref="view_contractor_list"/>
+        <field name="domain">[('is_cabochon_contractor', '=', True)]</field>
+        <field name="context">{'default_is_cabochon_contractor': True}</field>
+    </record>
+    <record id="action_contractors_form" model="ir.actions.act_window.view">
+        <field name="sequence">2</field><field name="view_mode">form</field>
+        <field name="view_id" ref="view_contractor_form"/><field name="act_window_id" ref="action_contractors"/>
+    </record>
+    <record id="action_contractors_list" model="ir.actions.act_window.view">
+        <field name="sequence">1</field><field name="view_mode">list</field>
+        <field name="view_id" ref="view_contractor_list"/><field name="act_window_id" ref="action_contractors"/>
+    </record>
+    <record id="view_contractor_issue_form" model="ir.ui.view">
+        <field name="name">cabochon.contractor.issue.form</field>
+        <field name="model">cabochon.contractor.issue.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Выдача сырья контрагенту">
+                <group>
+                    <field name="contractor_id" context="{'default_is_cabochon_contractor': True}"/>
+                    <field name="lot_id"/>
+                    <field name="available_weight_g"/>
+                    <field name="weight_g"/>
+                    <field name="issue_date"/>
+                    <field name="company_id" groups="base.group_multi_company"/>
+                    <field name="note"/>
+                </group>
+                <footer><button name="action_issue" type="object" string="Выдать" class="btn-primary"/><button special="cancel" string="Отмена"/></footer>
+            </form>
+        </field>
+    </record>
+    <record id="action_contractor_issue" model="ir.actions.act_window">
+        <field name="name">Выдача сырья контрагенту</field>
+        <field name="res_model">cabochon.contractor.issue.wizard</field>
+        <field name="view_mode">form</field><field name="target">new</field>
+    </record>
+    <record id="view_contractor_report_list" model="ir.ui.view">
+        <field name="name">cabochon.contractor.report.list</field>
+        <field name="model">cabochon.contractor.report</field>
+        <field name="arch" type="xml">
+            <list create="0" edit="0" delete="0" class="o_cabochon_list">
+                <field name="movement_date"/><field name="contractor_id"/><field name="direction" string="Действие"/>
+                <field name="lot_id" optional="hide"/><field name="location_id"/><field name="material_description"/>
+                <field name="issued_weight_g" sum="Выдали"/><field name="received_weight_g" sum="Получили"/>
+                <field name="fraction_id" optional="hide"/><field name="color_id" optional="hide"/>
+                <field name="stone_size_id" optional="hide"/><field name="shape_id" optional="hide"/>
+                <field name="form_type_id" optional="hide"/>
+                <field name="source_location_id" optional="hide"/><field name="destination_location_id" optional="hide"/>
+                <field name="movement_id" optional="hide"/><field name="company_id" groups="base.group_multi_company"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_contractor_report_search" model="ir.ui.view">
+        <field name="name">cabochon.contractor.report.search</field>
+        <field name="model">cabochon.contractor.report</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="contractor_id"/><field name="lot_id"/><field name="fraction_id"/>
+                <filter name="issued" string="Выдали" domain="[('direction','=','issue')]"/>
+                <filter name="received" string="Получили" domain="[('direction','=','receipt')]"/>
+                <filter name="date" string="Дата" date="movement_date"/>
+                <group>
+                    <filter name="contractor" string="Контрагент" context="{'group_by':'contractor_id'}"/>
+                    <filter name="direction" string="Направление" context="{'group_by':'direction'}"/>
+                    <filter name="fraction" string="Фракция" context="{'group_by':'fraction_id'}"/>
+                    <filter name="stock" string="Склад" context="{'group_by':'location_id'}"/>
+                    <filter name="color" string="Цвет" context="{'group_by':'color_id'}"/>
+                    <filter name="size" string="Размер" context="{'group_by':'stone_size_id'}"/>
+                    <filter name="shape" string="Форма" context="{'group_by':'shape_id'}"/>
+                    <filter name="month" string="Месяц" context="{'group_by':'movement_date:month'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+    <record id="view_contractor_report_pivot" model="ir.ui.view">
+        <field name="name">cabochon.contractor.report.pivot</field>
+        <field name="model">cabochon.contractor.report</field>
+        <field name="arch" type="xml">
+            <pivot string="Учет по контрагентам">
+                <field name="contractor_id" type="row"/><field name="lot_id" type="row"/>
+                <field name="issued_weight_g" type="measure"/><field name="received_weight_g" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+    <record id="action_contractor_report" model="ir.actions.act_window">
+        <field name="name">Учет по контрагентам</field>
+        <field name="res_model">cabochon.contractor.report</field>
+        <field name="view_mode">list,pivot</field>
+        <field name="search_view_id" ref="view_contractor_report_search"/>
+    </record>
+</odoo>

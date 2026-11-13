@@ -59,7 +59,7 @@ class CabochonWorkerLoadReport(models.Model):
                         END
                     )::integer AS active_request_count,
                     COUNT(request.id)::integer AS total_request_count,
-                    COALESCE(SUM(request.planned_weight_g), 0.0) AS planned_weight_g,
+                    COALESCE(SUM(request.total_planned_weight_g), 0.0) AS planned_weight_g,
                     COALESCE(SUM(request.issued_weight_g), 0.0) AS issued_weight_g,
                     COALESCE(SUM(request.received_weight_g), 0.0) AS received_weight_g,
                     COALESCE(SUM(request.detected_defect_weight_g), 0.0) AS detected_defect_weight_g,

@@ -10,7 +10,8 @@ powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database P
 #>
 [CmdletBinding()]
 param(
-    [ValidatePattern('^[A-Za-z0-9_-]+$')][string]$Database = 'Prod',
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern('^[A-Za-z0-9_-]+$')][string]$Database,
     [switch]$Install,
     [string]$OdooContainer = 'odoo19-web',
     [string]$DockerNetwork = '',

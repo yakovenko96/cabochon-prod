@@ -14,4 +14,5 @@ from . import (
     movement,
     production_request,
     stone_lot,
+    contractor,  # SQL report depends on movement and lot tables/columns.
 )

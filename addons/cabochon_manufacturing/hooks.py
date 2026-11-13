@@ -48,3 +48,4 @@ def post_init_hook(env):
     env["cabochon.worker.load.report"].init()
     env["cabochon.worker.operation.quality.report"].init()
     env["cabochon.integrity.report"].init()
+    env["cabochon.contractor.report"].init()

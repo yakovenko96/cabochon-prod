@@ -459,7 +459,7 @@ class CabochonStoneLot(models.Model):
     def _is_operation_route_allowed(self, operations):
         self.ensure_one()
         if self.is_return_loss_lot:
-            return True
+            return bool(operations and operations.sorted("sequence")[0].code == "press") and not self.env["cabochon.production.request"]._operation_route_error(operations, set(), enforce_prerequisites=False)
         completed_codes = self._completed_operation_codes()
         return self.env["cabochon.production.request"]._operation_route_error(operations, completed_codes) is False
 

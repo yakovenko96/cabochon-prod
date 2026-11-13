@@ -40,6 +40,14 @@ class CabochonExternalReceiptWizard(models.TransientModel):
     _inherit = "cabochon.once.mixin"
     _description = "Приход внешнего мешка сырья"
 
+    receipt_source = fields.Selection(
+        [("supplier", "Внешний приход"), ("contractor", "От контрагента")],
+        string="Источник прихода", required=True, default="supplier",
+    )
+    contractor_id = fields.Many2one(
+        "res.partner", string="Контрагент", ondelete="restrict",
+        domain=[("is_cabochon_contractor", "=", True)],
+    )
     supplier_id = fields.Many2one("cabochon.supplier", string="Поставщик", ondelete="restrict")
     supplier_name = fields.Char(string="Поставщик (текст)")
     location_id = fields.Many2one(
@@ -176,6 +184,10 @@ class CabochonExternalReceiptWizard(models.TransientModel):
     def action_create_receipt(self):
         self.ensure_one()
         self._lock_execution()
+        if self.receipt_source == "contractor":
+            if not self.contractor_id:
+                raise UserError("Для прихода от контрагента выберите контрагента.")
+            self.contractor_id._check_cabochon_contractor(self.env.company)
         if float_compare(self.initial_weight_g, 0.0, precision_digits=4) <= 0:
             raise UserError("Вес прихода должен быть больше нуля.")
         if self.location_id not in self._available_receipt_locations():
@@ -197,8 +209,8 @@ class CabochonExternalReceiptWizard(models.TransientModel):
                 raise UserError(f"Мешок с ID {self.lot_name} уже существует.")
         lot_values = {
             "name": self.lot_name or "Новый",
-            "supplier_id": self.supplier_id.id if self.supplier_id else False,
-            "supplier_name": self.supplier_name,
+            "supplier_id": self.supplier_id.id if self.receipt_source == "supplier" and self.supplier_id else False,
+            "supplier_name": self.supplier_name if self.receipt_source == "supplier" else False,
             "fraction": self.fraction,
             "fraction_id": self.fraction_id.id if self.fraction_id else False,
             "waybill_number": self.waybill_number,
@@ -214,9 +226,7 @@ class CabochonExternalReceiptWizard(models.TransientModel):
             "shape_id": self.shape_id.id if self.shape_id else False,
             "form_type_id": self.form_type_id.id if self.form_type_id else False,
         }
-        create_context = {}
-        if self.source_operation_id:
-            create_context["cabochon_initial_operation_ids"] = [self.source_operation_id.id]
+        create_context = {"skip_initial_lot_movement": INTERNAL}
         lot_model = self.env["cabochon.stone.lot"].sudo()
         lot = lot_model._find_finished_position(lot_values) if self.location_id.code == "finished" else lot_model
         if lot:
@@ -224,15 +234,16 @@ class CabochonExternalReceiptWizard(models.TransientModel):
                 "current_weight_g": lot.current_weight_g + self.initial_weight_g,
                 "initial_weight_g": lot.initial_weight_g + self.initial_weight_g,
             })
-            self.env["cabochon.manufacturing.movement"].sudo().create({
-                "kind": "receipt", "new_lot_id": lot.id, "weight_g": self.initial_weight_g,
-                "destination_location_id": self.location_id.id, "company_id": lot.company_id.id,
-                "manager_id": self.env.user.sudo().employee_id.id,
-                "operation_ids": [(6, 0, self.source_operation_id.ids)],
-                "note": self.note,
-            })
         else:
             lot = lot_model.with_context(**create_context).create(lot_values)
+        self.env["cabochon.manufacturing.movement"].sudo().with_context(cabochon_contractor_movement=INTERNAL).create({
+            "kind": "receipt", "new_lot_id": lot.id, "weight_g": self.initial_weight_g,
+            "destination_location_id": self.location_id.id, "company_id": lot.company_id.id,
+            "manager_id": self.env.user.sudo().employee_id.id,
+            "operation_ids": [(6, 0, self.source_operation_id.ids)],
+            "contractor_id": self.contractor_id.id if self.receipt_source == "contractor" else False,
+            "note": self.note,
+        })
         self._mark_executed()
         if self.note:
             lot.message_post(body=self.note)

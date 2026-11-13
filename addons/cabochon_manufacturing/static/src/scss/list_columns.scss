@@ -1,16 +1,14 @@
-.o_list_view {
-    .o_list_table {
-        table-layout: auto !important;
-        width: max-content !important;
-        min-width: 0 !important;
+.o_cabochon_list {
+    .o_list_table th[data-name] .text-truncate {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
     }
 
-    .o_data_cell,
-    .o_column_sortable,
-    th,
-    td {
-        max-width: none !important;
-        width: max-content !important;
-        white-space: nowrap;
+    .o_data_cell.o_list_char,
+    .o_data_cell.o_list_many2one {
+        // Override Odoo's highly specific non-editable cell nowrap rule.
+        white-space: normal !important;
+        overflow-wrap: anywhere;
     }
 }

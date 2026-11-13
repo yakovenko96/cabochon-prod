@@ -68,6 +68,21 @@ class CabochonIntegrityReport(models.Model):
                     AND other.shape_id IS NOT DISTINCT FROM lot.shape_id
                     AND other.stone_size_id IS NOT DISTINCT FROM lot.stone_size_id
                     AND other.form_type_id IS NOT DISTINCT FROM lot.form_type_id)
+            UNION ALL
+            SELECT movement.id * 16 + 9, movement.company_id, movement.lot_id, movement.request_id,
+                   movement.transfer_id, movement.id, 'Движение по отмененной заявке'
+              FROM cabochon_manufacturing_movement movement
+              JOIN cabochon_production_request request ON request.id = movement.request_id
+             WHERE request.state = 'cancelled'
+            UNION ALL
+            SELECT transfer.id * 16 + 10, transfer.company_id, NULL, transfer.request_id, transfer.id, NULL,
+                   'Подтвержденная сдача без исходного мешка'
+              FROM cabochon_material_transfer transfer
+             WHERE transfer.state = 'confirmed' AND transfer.transfer_type = 'receipt'
+               AND EXISTS (SELECT 1 FROM cabochon_material_transfer_line line
+                            WHERE line.transfer_id = transfer.id AND line.lot_id IS NULL
+                              AND (line.weight_g > 0.0001 OR line.defect_weight_g > 0.0001
+                                   OR line.return_loss_weight_g > 0.0001 OR line.lost_weight_g > 0.0001))
         """)
 
     def action_open_source(self):

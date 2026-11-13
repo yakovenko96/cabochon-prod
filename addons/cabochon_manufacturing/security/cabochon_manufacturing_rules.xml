@@ -39,6 +39,17 @@
         <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_manager')), (4, ref('cabochon_base.group_cabochon_finished_manager'))]"/>
     </record>
 
+    <record id="rule_cabochon_lot_manager_history_read" model="ir.rule">
+        <field name="name">Cabochon lots: manager transfer history read</field>
+        <field name="model_id" ref="model_cabochon_stone_lot"/>
+        <field name="domain_force">[('security_manager_user_ids', 'in', [user.id])]</field>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_manager')), (4, ref('cabochon_base.group_cabochon_finished_manager'))]"/>
+    </record>
+
     <record id="rule_cabochon_lot_workshop_all" model="ir.rule">
         <field name="name">Cabochon lots: technologist all stock</field>
         <field name="model_id" ref="model_cabochon_stone_lot"/>
@@ -251,5 +262,22 @@
         <field name="name">Integrity report companies</field>
         <field name="model_id" ref="model_cabochon_integrity_report"/>
         <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_contractor_report_company" model="ir.rule">
+        <field name="name">Контрагенты: разрешенные компании</field>
+        <field name="model_id" ref="model_cabochon_contractor_report"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_contractor_report_manager" model="ir.rule">
+        <field name="name">Контрагенты: операции своего склада</field>
+        <field name="model_id" ref="model_cabochon_contractor_report"/>
+        <field name="domain_force">['|', '|', ('source_location_id.manager_id.user_id', '=', user.id), ('destination_location_id.manager_id.user_id', '=', user.id), ('manager_id.user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_manager')), (4, ref('cabochon_base.group_cabochon_finished_manager'))]"/>
+    </record>
+    <record id="rule_contractor_report_workshop" model="ir.rule">
+        <field name="name">Контрагенты: чтение технологом и администратором</field>
+        <field name="model_id" ref="model_cabochon_contractor_report"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('cabochon_base.group_cabochon_workshop_manager')), (4, ref('cabochon_base.group_cabochon_admin'))]"/>
     </record>
 </odoo>

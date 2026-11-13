@@ -194,3 +194,165 @@ class TestInventoryIntegrity(TransactionCase):
         self.env.flush_all()
         row = self.env["cabochon.worker.operation.quality.report"].search([("request_id", "=", request.id), ("defect_weight_g", ">", 0)])
         self.assertAlmostEqual(row.defect_percent, 10)
+
+    def _standalone_issue(self, lot, worker=None):
+        return self.env["cabochon.material.transfer"].with_user(self.manager_user).create({
+            "transfer_type": "issue", "manager_id": self.manager.id,
+            "worker_id": (worker or self.worker).id, "operation_ids": [(6, 0, self.wash.ids)],
+            "line_ids": [(0, 0, {"lot_id": lot.id, "weight_g": 100})],
+        })
+
+    def test_second_approved_issue_cannot_take_already_issued_lot(self):
+        lot = self._lot()
+        other_user = self._make_user("integrity_other_worker", "group_cabochon_fixer")
+        other = self.env["hr.employee"].create({"name": "Other worker", "user_id": other_user.id})
+        first = self._standalone_issue(lot)
+        second = self._standalone_issue(lot, other)
+        first.action_manager_confirm()
+        second.action_manager_confirm()
+        first.with_user(self.worker_user).action_worker_confirm()
+        with self.assertRaises(UserError), self.cr.savepoint():
+            second.with_user(other_user).action_worker_confirm()
+        self.assertEqual(lot.owner_employee_id, self.worker)
+        self.assertEqual(second.state, "manager_confirmed")
+        movements = self.env["cabochon.manufacturing.movement"].search([("lot_id", "=", lot.id), ("kind", "=", "issue")])
+        self.assertEqual(sum(movements.mapped("weight_g")), 100)
+
+    def test_standalone_issue_respects_request_reservation(self):
+        request = self._request()
+        issue = self._standalone_issue(request.source_lot_id)
+        with self.assertRaises(UserError), self.cr.savepoint():
+            issue.action_manager_confirm()
+        request.with_user(self.admin).action_cancel()
+        issue.action_manager_confirm()
+        issue.with_user(self.worker_user).action_worker_confirm()
+        self.assertEqual(issue.state, "confirmed")
+
+    def test_receipt_requires_source_and_confirmed_issue(self):
+        receipt = self.env["cabochon.material.transfer"].with_user(self.manager_user).create({
+            "transfer_type": "receipt", "manager_id": self.manager.id, "worker_id": self.worker.id,
+            "operation_ids": [(6, 0, self.wash.ids)], "weight_before_g": 100,
+            "line_ids": [(0, 0, {"weight_g": 100, "weight_before_g": 100})],
+        })
+        count = self.env["cabochon.stone.lot"].search_count([])
+        with self.assertRaises(UserError), self.cr.savepoint():
+            receipt.action_manager_confirm()
+        lot = self._lot()
+        receipt.line_ids.write({"lot_id": lot.id})
+        with self.assertRaises(UserError), self.cr.savepoint():
+            receipt.action_manager_confirm()
+        issue = self._standalone_issue(lot)
+        issue.action_manager_confirm()
+        issue.with_user(self.worker_user).action_worker_confirm()
+        receipt.action_manager_confirm()
+        receipt.with_user(self.worker_user).action_worker_confirm()
+        self.assertEqual(lot.current_weight_g, 0)
+        self.assertEqual(receipt.line_ids.new_lot_id.current_weight_g, 100)
+        self.assertEqual(self.env["cabochon.stone.lot"].search_count([]), count + 2)
+
+    def test_partial_wash_stays_open_and_final_receipt_balances(self):
+        request = self._request()
+        request.with_user(self.admin).action_confirm()
+        request.issue_id.with_user(self.manager_user).action_manager_confirm()
+        request.issue_id.with_user(self.worker_user).action_worker_confirm()
+        receipt = request.receipt_ids.filtered(lambda item: item.transfer_type == "receipt")
+        receipt.line_ids.with_user(self.manager_user).write({"weight_g": 40})
+        receipt.with_user(self.manager_user).action_manager_confirm()
+        receipt.with_user(self.worker_user).action_worker_confirm()
+        self.assertEqual(request.state, "partially_done")
+        self.assertFalse(request.closed_at)
+        self.assertEqual(request.source_lot_id.current_weight_g, 60)
+        final = request.receipt_ids.filtered(lambda item: item.transfer_type == "receipt" and item.state == "draft")
+        self.assertEqual(len(final), 1)
+        final.with_user(self.manager_user).write({"is_final_receipt": True})
+        final.line_ids.with_user(self.manager_user).write({"weight_g": 55})
+        final.with_user(self.manager_user).action_manager_confirm()
+        final.with_user(self.worker_user).action_worker_confirm()
+        self.assertEqual(request.state, "done")
+        self.assertEqual(request.received_weight_g, 95)
+        self.assertEqual(request.lost_weight_g, 5)
+        self.assertFalse(request._open_issued_lots_for_receipt())
+
+    def test_cancelled_request_blocks_both_confirmations(self):
+        for manager_approved in (False, True):
+            request = self._request()
+            request.with_user(self.admin).action_confirm()
+            issue = request.issue_id
+            if manager_approved:
+                issue.with_user(self.manager_user).action_manager_confirm()
+            request.with_user(self.admin).action_cancel()
+            with self.assertRaises(UserError), self.cr.savepoint():
+                if manager_approved:
+                    issue.with_user(self.worker_user).action_worker_confirm()
+                else:
+                    issue.with_user(self.manager_user).action_manager_confirm()
+            self.assertFalse(request.movement_ids)
+            self.assertFalse(request.source_lot_id.reserved_request_id)
+            self.assertFalse(issue.activity_ids)
+            self.assertEqual(request.source_lot_id.state, "available")
+
+    def test_zero_receipt_can_close_after_complete_partial_return(self):
+        request = self._request()
+        request.with_user(self.admin).action_confirm()
+        request.issue_id.with_user(self.manager_user).action_manager_confirm()
+        request.issue_id.with_user(self.worker_user).action_worker_confirm()
+        receipt = request.receipt_ids.filtered(lambda item: item.transfer_type == "receipt")
+        receipt.line_ids.with_user(self.manager_user).write({"weight_g": 100})
+        receipt.with_user(self.manager_user).action_manager_confirm()
+        receipt.with_user(self.worker_user).action_worker_confirm()
+        zero = request.receipt_ids.filtered(lambda item: item.transfer_type == "receipt" and item.state == "draft")
+        movement_count = len(request.movement_ids)
+        zero.with_user(self.manager_user).action_manager_confirm()
+        zero.with_user(self.worker_user).action_worker_confirm()
+        self.assertTrue(zero.is_final_receipt)
+        self.assertEqual(request.state, "done")
+        self.assertEqual(len(request.movement_ids), movement_count)
+
+    def test_direct_additional_source_cannot_bypass_route(self):
+        request = self._request()
+        other = self._lot()
+        with self.assertRaises(ValidationError), self.cr.savepoint():
+            self.env["cabochon.production.request.source.line"].create({
+                "request_id": request.id, "lot_id": other.id, "weight_g": 100,
+            })
+        self.assertFalse(request.additional_source_line_ids)
+        self.assertFalse(other.reserved_request_id)
+
+    def test_tube_sources_validate_period_and_report_total_plan(self):
+        tubes = self.env.ref("cabochon_manufacturing.operation_tubes")
+        self.worker.cabochon_allowed_operation_ids |= tubes
+        lot = self._lot(extraction_year=2026, extraction_month="1")
+        other = self._lot(extraction_year=2026, extraction_month="1", initial_weight_g=200, current_weight_g=200)
+        request = self._request(lot)
+        request.operation_ids = tubes
+        line = self.env["cabochon.production.request.source.line"].create({
+            "request_id": request.id, "lot_id": other.id, "weight_g": 200,
+        })
+        mismatched = self._lot(extraction_year=2026, extraction_month="2")
+        with self.assertRaises(ValidationError), self.cr.savepoint():
+            line.write({"lot_id": mismatched.id, "weight_g": 100})
+        self.env.flush_all()
+        report = self.env["cabochon.worker.load.report"].search([("worker_id", "=", self.worker.id)])
+        self.assertEqual(request.total_planned_weight_g, 300)
+        self.assertEqual(report.planned_weight_g, 300)
+        request.with_user(self.admin).action_confirm()
+        self.assertEqual(len(request.issue_id.line_ids), 2)
+
+    def test_operations_require_material_acceptance_and_keep_issue_date(self):
+        request = self._request()
+        operation = request.operation_line_ids.with_user(self.admin)
+        with self.assertRaisesRegex(UserError, "после приемки"), self.cr.savepoint():
+            operation.action_start()
+        with self.assertRaises(UserError), self.cr.savepoint():
+            operation.action_finish()
+        request.with_user(self.admin).action_confirm()
+        request.issue_id.with_user(self.manager_user).action_manager_confirm()
+        with self.assertRaises(UserError), self.cr.savepoint():
+            operation.action_start()
+        request.issue_id.with_user(self.worker_user).action_worker_confirm()
+        started_at = request.started_at
+        self.assertEqual(operation.state, "in_progress")
+        operation.action_start()
+        operation.action_finish()
+        self.assertEqual(operation.state, "done")
+        self.assertEqual(request.started_at, started_at)

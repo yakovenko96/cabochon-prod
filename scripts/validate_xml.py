@@ -1,6 +1,6 @@
 """Check XML well-formedness only (not Odoo view/schema correctness)."""
-from pathlib import Path
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 modules = (root / "addons/cabochon_base", root / "addons/cabochon_manufacturing")

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_toluene_consumption_list" model="ir.ui.view">
+        <field name="name">cabochon.toluene.consumption.list</field>
+        <field name="model">cabochon.material.transfer</field>
+        <field name="arch" type="xml">
+            <list create="0" edit="0" delete="0" class="o_cabochon_list">
+                <field name="name"/><field name="transfer_date"/><field name="request_id"/>
+                <field name="worker_id"/><field name="toluene_consumption_l" sum="Расход толуола, л"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_toluene_consumption_pivot" model="ir.ui.view">
+        <field name="name">cabochon.toluene.consumption.pivot</field>
+        <field name="model">cabochon.material.transfer</field>
+        <field name="arch" type="xml">
+            <pivot string="Расход толуола">
+                <field name="worker_id" type="row"/><field name="transfer_date" type="col" interval="month"/>
+                <field name="toluene_consumption_l" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+    <record id="action_toluene_consumption" model="ir.actions.act_window">
+        <field name="name">Расход толуола</field>
+        <field name="res_model">cabochon.material.transfer</field>
+        <field name="view_mode">list,pivot,form</field>
+        <field name="view_id" ref="view_toluene_consumption_list"/>
+        <field name="domain">[('transfer_type','=','receipt'),('state','=','confirmed'),('toluene_consumption_recorded','=',True)]</field>
+    </record>
+    <record id="action_toluene_consumption_pivot" model="ir.actions.act_window.view">
+        <field name="sequence">2</field><field name="view_mode">pivot</field>
+        <field name="view_id" ref="view_toluene_consumption_pivot"/><field name="act_window_id" ref="action_toluene_consumption"/>
+    </record>
+    <record id="action_toluene_consumption_list" model="ir.actions.act_window.view">
+        <field name="sequence">1</field><field name="view_mode">list</field>
+        <field name="view_id" ref="view_toluene_consumption_list"/><field name="act_window_id" ref="action_toluene_consumption"/>
+    </record>
+</odoo>

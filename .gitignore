@@ -222,3 +222,4 @@ __marimo__/
 
 # Production dumps must stay outside tracked source files
 /Prod_*.zip
+.playwright-mcp

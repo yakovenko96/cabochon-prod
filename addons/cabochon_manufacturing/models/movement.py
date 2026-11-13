@@ -1,5 +1,5 @@
 from odoo import api, fields, models
-from odoo.addons.cabochon_base.internal import INTERNAL
+from odoo.addons.cabochon_base.internal import INTERNAL, is_internal
 from odoo.exceptions import UserError
 from odoo.tools.float_utils import float_compare, float_is_zero
 
@@ -116,6 +116,7 @@ class CabochonManufacturingMovement(models.Model):
     correction_of_id = fields.Many2one("cabochon.manufacturing.movement", string="Корректирует", ondelete="restrict", index=True)
     performed_by_id = fields.Many2one("res.users", string="Действие выполнил", readonly=True, ondelete="restrict", index=True)
     customer_id = fields.Many2one("cabochon.finished.customer", string="Покупатель", ondelete="restrict", index=True)
+    contractor_id = fields.Many2one("res.partner", string="Контрагент", ondelete="restrict", index=True)
     note = fields.Text(string="Комментарий")
     company_id = fields.Many2one(
         "res.company",
@@ -129,6 +130,11 @@ class CabochonManufacturingMovement(models.Model):
     def create(self, vals_list):
         sequence = self.env["ir.sequence"]
         for vals in vals_list:
+            if vals.get("contractor_id"):
+                if not is_internal(self.env, "cabochon_contractor_movement"):
+                    raise UserError("Движение контрагента создается только через выдачу сырья или приход на склад.")
+                company = self.env["res.company"].browse(vals.get("company_id")) or self.env.company
+                self.env["res.partner"].browse(vals["contractor_id"])._check_cabochon_contractor(company)
             vals["performed_by_id"] = self.env.uid
             vals["applied_loss_norm_percent"] = self.new(vals)._combined_expected_loss_percent()
             vals["norm_snapshot_migrated"] = False
@@ -287,6 +293,8 @@ class CabochonMovementCorrectionWizard(models.TransientModel):
     def action_apply(self):
         self.ensure_one()
         self._lock_execution()
+        if not (self.reason or "").strip():
+            raise UserError("Укажите причину корректировки.")
         self._check_correction_scope()
         self.env.cr.execute("SELECT id FROM cabochon_stone_lot WHERE id = %s FOR UPDATE", [self.lot_id.id])
         self.lot_id.invalidate_recordset()
@@ -323,6 +331,12 @@ class CabochonMovementCorrectionWizard(models.TransientModel):
             raise UserError("У вас нет права корректировать мешок на этом складе.")
         if self.correction_type == "location" and not self._user_can_correct_location(self.destination_location_id):
             raise UserError("У вас нет права переносить мешок на указанный склад.")
+        if self.correction_type == "location" and self.destination_location_id.code == "employee":
+            employee = self.destination_location_id.employee_id
+            if not employee or employee.company_id != self.lot_id.company_id:
+                raise UserError("Личная зона должна принадлежать работнику компании мешка.")
+        if self.correction_of_id and self.correction_of_id.company_id != self.lot_id.company_id:
+            raise UserError("Корректируемое движение и мешок должны принадлежать одной компании.")
 
     def _apply_weight_correction(self):
         if float_is_zero(self.delta_weight_g, precision_digits=4):
@@ -350,13 +364,14 @@ class CabochonMovementCorrectionWizard(models.TransientModel):
         source_location = self.lot_id.location_id
         destination_location = self.destination_location_id
         owner_employee = destination_location.employee_id if destination_location.code == "employee" else False
-        self.lot_id.with_context(cabochon_inventory_movement=INTERNAL).write(
-            {
-                "location_id": destination_location.id,
-                "owner_employee_id": owner_employee.id if owner_employee else False,
-                "state": self._state_for_location(destination_location, self.lot_id.current_weight_g),
-            }
-        )
+        values = {
+            "location_id": destination_location.id,
+            "owner_employee_id": owner_employee.id if owner_employee else False,
+            "state": self._state_for_location(destination_location, self.lot_id.current_weight_g),
+        }
+        if destination_location.code != "finished":
+            values["standard_weight_g"] = 0
+        self.lot_id.with_context(cabochon_inventory_movement=INTERNAL).write(values)
         self._create_correction_movement(
             weight_g=self.lot_id.current_weight_g,
             source_location=source_location,

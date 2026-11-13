@@ -31,7 +31,9 @@ cabochon_manufacturing
 Prod
 ```
 
-База Odoo должна быть создана заранее. Первый запуск модулей:
+Целевая база всегда задается явно параметром `-Database`. База Odoo должна
+быть создана заранее. Команды для `Prod` выполняются только при отдельном
+разрешении на рабочее обновление. Первый запуск модулей:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database Prod -Install
@@ -82,6 +84,48 @@ powershell -ExecutionPolicy Bypass -File scripts\install_modules.ps1 -Database P
 Для отката нужны согласованные предыдущий код, база и filestore; одного возврата
 Python-файлов недостаточно. Проверка ZIP не заменяет пробное восстановление.
 После запуска проверьте вход работников, выдачу, отказ и сдачу.
+
+### Изменения 19.0.2.39.0
+
+- `Справочники → Контрагенты производства`: контакты, которым передается сырье
+  на переработку. `Работа → Выдача сырья контрагенту`: одна выдача по выбранному
+  мешку без производственной заявки и двойного подтверждения. Только свободное
+  обычное сырье, не проходившее операций; частичная выдача разрешена.
+- В `Приходе на склад` добавлен источник `От контрагента`. Возврат принимается
+  на любой из четырех производственных складов. `Отчеты → Учет по контрагентам`
+  показывает, что и сколько выдали и получили, включая готовые камни,
+  объединенные в общую позицию. Денежные расчеты и заказы переработки не вводятся.
+- На каждой сдаче после мойки в толуоле указывается `Расход толуола, л`.
+  После финального подтверждения он попадает в заявку и `Отчеты → Расход толуола`.
+  Галтовка не учитывается. Старые сдачи остаются с неуказанным расходом.
+
+Проверено на тестовых базах: 30 регрессионных тестов, smoke и пять конкурентных
+сценариев. Миграция и post-init создают отчет после появления зависимых колонок;
+исторические движения и значения расхода не переписываются. `Prod` не обновлялась.
+
+### Изменения 19.0.2.38.0
+
+- Финальная приемка повторно проверяет доступность мешка, склад, владельца,
+  резерв и состояние заявки под блокировкой. Две подтвержденные менеджером
+  выдачи не могут повторно выдать один и тот же мешок.
+- Ненулевая сдача требует источник и подтвержденную выдачу этому работнику;
+  источник документа по заявке проверяется по ее выдаче.
+- Отмена заявки блокирует связанные документы и снимает их уведомления.
+  Гонка отмены и приемки защищена общей блокировкой заявки.
+- Частичная помывка оставляет заявку открытой и создает следующую сдачу.
+  Нулевая закрывающая сдача сохраняется; закрытие с остатком запрещено.
+- Изменение дополнительных источников через RPC проверяет те же правила,
+  что и заявка: несколько мешков только для труб, одинаковый период добычи.
+- Панель технолога и маршрут учитывают общий плановый вес. Ручной запуск
+  операций доступен после приемки материала и не меняет дату выдачи.
+- Убрано глобальное растягивание списков Odoo; основные таблицы Cabochon
+  показывают компактный набор колонок с возможностью включить подробности.
+- Скрипт обновления требует явную базу. CI дополнен установкой Odoo,
+  21 регрессионной проверкой, smoke и четырьмя конкурентными сценариями.
+
+Проверено на отдельных базах 2026-11-13. `Prod` в рамках этих исправлений
+не обновлялась. Старые движения и некорректные документы автоматически
+не исправляются. Отчет обзора и результаты: [docs/PROJECT_REVIEW_2026-11-13.md](docs/PROJECT_REVIEW_2026-11-13.md).
 
 ### Изменения 19.0.2.37.0
 
@@ -153,11 +197,13 @@ docker exec odoo19-web odoo -d CabochonReviewTest -u cabochon_base,cabochon_manu
 ### Ручное обслуживание тестовой среды
 
 Следующие низкоуровневые команды не делают бэкап и не останавливают службу.
+Перед запуском задайте `ODOO_DB_PASSWORD` через принятый в среде механизм
+секретов; пароль в примерах не хранится.
 Для рабочего сервера используйте процедуру и скрипт выше:
 
 ```powershell
-docker exec odoo19-web odoo -d CabochonReviewTest -i cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
-docker exec odoo19-web odoo -d CabochonReviewTest -u cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
+docker exec odoo19-web odoo -d CabochonReviewTest -i cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password $env:ODOO_DB_PASSWORD --log-handler odoo.tools.convert:DEBUG
+docker exec odoo19-web odoo -d CabochonReviewTest -u cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password $env:ODOO_DB_PASSWORD --log-handler odoo.tools.convert:DEBUG
 ```
 
 Без Docker добавьте папку `addons` проекта в `addons_path` Odoo 19 и запускайте
@@ -178,9 +224,9 @@ Smoke-проверку запускайте только на временной
 
 ```powershell
 docker exec odoo19-db createdb -U odoo CabochonSmoke
-docker exec odoo19-web odoo -d CabochonSmoke -i cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password 123321 --log-handler odoo.tools.convert:DEBUG
+docker exec odoo19-web odoo -d CabochonSmoke -i cabochon_base,cabochon_manufacturing --stop-after-init --db_host db --db_port 5432 --db_user odoo --db_password $env:ODOO_DB_PASSWORD --log-handler odoo.tools.convert:DEBUG
 $OutputEncoding = [System.Text.UTF8Encoding]::new()
-Get-Content -Raw -Encoding UTF8 scripts\smoke_zero_start.py | docker exec -i odoo19-web odoo shell -d CabochonSmoke --db_host db --db_port 5432 --db_user odoo --db_password 123321
+Get-Content -Raw -Encoding UTF8 scripts\smoke_zero_start.py | docker exec -i odoo19-web odoo shell -d CabochonSmoke --db_host db --db_port 5432 --db_user odoo --db_password $env:ODOO_DB_PASSWORD
 docker exec odoo19-db dropdb -U odoo --if-exists --force CabochonSmoke
 ```
 

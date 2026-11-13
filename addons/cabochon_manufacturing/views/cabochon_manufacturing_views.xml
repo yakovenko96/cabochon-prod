@@ -290,24 +290,24 @@
         <field name="name">cabochon.stone.lot.list</field>
         <field name="model">cabochon.stone.lot</field>
         <field name="arch" type="xml">
-            <list create="0" edit="0" delete="0" decoration-warning="state == 'issued'" decoration-danger="state == 'inventory_difference'">
+            <list class="o_cabochon_list" create="0" edit="0" delete="0" decoration-warning="state == 'issued'" decoration-danger="state == 'inventory_difference'">
                 <field name="name"/>
                 <field name="state" string="Статус"/>
-                <field name="fraction_id"/>
-                <field name="extraction_year_id"/>
-                <field name="extraction_month"/>
+                <field name="fraction_id" optional="hide"/>
+                <field name="extraction_year_id" optional="hide"/>
+                <field name="extraction_month" optional="hide"/>
                 <field name="current_weight_g" sum="Текущий вес"/>
                 <field name="location_id"/>
                 <field name="owner_employee_id"/>
-                <field name="completed_operation_ids" widget="many2many_tags"/>
+                <field name="completed_operation_ids" widget="many2many_tags" optional="hide"/>
                 <field name="color_id"/>
                 <field name="stone_size_id"/>
                 <field name="shape_id"/>
-                <field name="form_type_id"/>
-                <field name="is_defect_lot"/>
-                <field name="defect_operation_id"/>
-                <field name="is_return_loss_lot"/>
-                <field name="return_loss_operation_id"/>
+                <field name="form_type_id" optional="hide"/>
+                <field name="is_defect_lot" optional="hide"/>
+                <field name="defect_operation_id" optional="hide"/>
+                <field name="is_return_loss_lot" optional="hide"/>
+                <field name="return_loss_operation_id" optional="hide"/>
             </list>
         </field>
     </record>
@@ -415,7 +415,9 @@
                             <field name="eligible_stone_size_ids" invisible="1"/>
                             <field name="eligible_shape_ids" invisible="1"/>
                             <field name="eligible_form_type_ids" invisible="1"/>
-                            <field name="supplier_id" invisible="not show_raw_fields"/>
+                            <field name="receipt_source"/>
+                            <field name="contractor_id" invisible="receipt_source != 'contractor'" required="receipt_source == 'contractor'" context="{'default_is_cabochon_contractor': True}"/>
+                            <field name="supplier_id" invisible="receipt_source == 'contractor' or not show_raw_fields"/>
                             <field name="supplier_name" invisible="1"/>
                             <field name="location_id"/>
                             <field name="source_operation_id" invisible="not show_operation_fields" required="show_operation_fields" domain="[('id', 'in', eligible_source_operation_ids)]"/>
@@ -536,25 +538,25 @@
         <field name="name">cabochon.production.request.list</field>
         <field name="model">cabochon.production.request</field>
         <field name="arch" type="xml">
-            <list default_order="id desc" decoration-danger="state not in ('done','cancelled') and (is_overdue or priority == '2')" decoration-warning="state not in ('done','cancelled') and priority == '1'" decoration-info="state in ('confirmed','in_progress','partially_done') and priority == '0'" decoration-muted="state in ('done','cancelled')">
+            <list class="o_cabochon_list" default_order="id desc" decoration-danger="state not in ('done','cancelled') and (is_overdue or priority == '2')" decoration-warning="state not in ('done','cancelled') and priority == '1'" decoration-info="state in ('confirmed','in_progress','partially_done') and priority == '0'" decoration-muted="state in ('done','cancelled')">
                 <field name="name"/>
                 <field name="state" string="Статус"/>
-                <field name="priority" string="Приоритет"/>
+                <field name="priority" string="Приоритет" optional="hide"/>
                 <field name="worker_id"/>
                 <field name="operation_ids" widget="many2many_tags"/>
-                <field name="source_lot_id"/>
-                <field name="planned_weight_g"/>
-                <field name="issued_weight_g"/>
-                <field name="received_weight_g"/>
-                <field name="defect_weight_g"/>
-                <field name="lost_weight_g"/>
+                <field name="source_lot_id" optional="hide"/>
+                <field name="total_planned_weight_g" string="План, г"/>
+                <field name="issued_weight_g" optional="hide"/>
+                <field name="received_weight_g" optional="hide"/>
+                <field name="defect_weight_g" optional="hide"/>
+                <field name="lost_weight_g" optional="hide"/>
                 <field name="deadline"/>
                 <field name="is_overdue" column_invisible="1"/>
                 <field name="state_order" column_invisible="1"/>
-                <field name="started_at"/>
-                <field name="closed_at"/>
-                <field name="actual_duration_hours"/>
-                <field name="worker_load"/>
+                <field name="started_at" optional="hide"/>
+                <field name="closed_at" optional="hide"/>
+                <field name="actual_duration_hours" optional="hide"/>
+                <field name="worker_load" optional="hide"/>
             </list>
         </field>
     </record>
@@ -629,6 +631,7 @@
                             <field name="received_weight_g"/>
                             <field name="defect_weight_g"/>
                             <field name="lost_weight_g"/>
+                            <field name="toluene_consumption_l"/>
                             <field name="issue_id"/>
                         </group>
                     </group>
@@ -762,11 +765,12 @@
         <field name="arch" type="xml">
             <form>
                 <header>
-                    <button name="action_start" string="Начать" type="object" class="btn-primary" invisible="state != 'pending'" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
-                    <button name="action_finish" string="Завершить" type="object" invisible="state == 'done'" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
+                    <button name="action_start" string="Начать" type="object" class="btn-primary" invisible="state != 'pending' or request_state not in ('in_progress', 'partially_done')" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
+                    <button name="action_finish" string="Завершить" type="object" invisible="state == 'done' or request_state not in ('in_progress', 'partially_done')" groups="cabochon_base.group_cabochon_workshop_manager,cabochon_base.group_cabochon_admin"/>
                     <field name="state" widget="statusbar"/>
                 </header>
                 <sheet>
+                    <field name="request_state" invisible="1"/>
                     <group>
                         <group>
                             <field name="request_id"/>
@@ -824,24 +828,24 @@
         <field name="name">cabochon.material.transfer.list</field>
         <field name="model">cabochon.material.transfer</field>
         <field name="arch" type="xml">
-            <list default_order="state_order, transfer_date desc, id desc" decoration-warning="state in ('draft','manager_confirmed')" decoration-muted="state == 'confirmed'">
+            <list class="o_cabochon_list" default_order="state_order, transfer_date desc, id desc" decoration-warning="state in ('draft','manager_confirmed')" decoration-muted="state == 'confirmed'">
                 <field name="name"/>
                 <field name="state" string="Статус"/>
                 <field name="transfer_type"/>
                 <field name="request_id"/>
                 <field name="worker_id"/>
-                <field name="manager_id"/>
+                <field name="manager_id" optional="hide"/>
                 <field name="operation_ids" widget="many2many_tags"/>
-                <field name="transfer_date"/>
+                <field name="transfer_date" optional="hide"/>
                 <field name="manager_confirmed_at" optional="hide"/>
                 <field name="worker_confirmed_at" optional="hide"/>
                 <field name="state_order" column_invisible="1"/>
                 <field name="total_weight_g" sum="Фактический вес"/>
-                <field name="total_defect_weight_g" sum="Брак"/>
-                <field name="total_detected_defect_weight_g" sum="Выявленный брак"/>
-                <field name="total_made_defect_weight_g" sum="Сделанный брак"/>
-                <field name="total_return_loss_weight_g" sum="Возвратные потери"/>
-                <field name="total_lost_weight_g" sum="Потери"/>
+                <field name="total_defect_weight_g" sum="Брак" optional="hide"/>
+                <field name="total_detected_defect_weight_g" sum="Выявленный брак" optional="hide"/>
+                <field name="total_made_defect_weight_g" sum="Сделанный брак" optional="hide"/>
+                <field name="total_return_loss_weight_g" sum="Возвратные потери" optional="hide"/>
+                <field name="total_lost_weight_g" sum="Потери" optional="hide"/>
             </list>
         </field>
     </record>
@@ -879,15 +883,17 @@
         <field name="arch" type="xml">
             <form>
                 <header>
-                    <button name="action_manager_confirm" string="Выдать" type="object" class="btn-primary" invisible="state != 'draft' or transfer_type != 'issue'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
-                    <button name="action_manager_confirm" string="Принять сдачу" type="object" class="btn-primary" invisible="state != 'draft' or transfer_type == 'issue'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
-                    <button name="action_worker_confirm" string="Принять" type="object" class="btn-primary" invisible="state != 'manager_confirmed' or transfer_type != 'issue' or not can_worker_confirm" groups="cabochon_base.group_cabochon_user"/>
-                    <button name="action_worker_reject" string="Отказаться от выдачи" type="object" invisible="state != 'manager_confirmed' or transfer_type != 'issue' or not can_worker_confirm" groups="cabochon_base.group_cabochon_user"/>
-                    <button name="action_worker_confirm" string="Подтвердить сдачу" type="object" class="btn-primary" invisible="state != 'manager_confirmed' or transfer_type == 'issue' or not can_worker_confirm" groups="cabochon_base.group_cabochon_user"/>
-                    <button name="action_worker_reject" string="Отказаться от сдачи" type="object" invisible="state != 'manager_confirmed' or transfer_type == 'issue' or not can_worker_confirm" groups="cabochon_base.group_cabochon_user"/>
+                    <button name="action_manager_confirm" string="Выдать" type="object" class="btn-primary" invisible="request_state == 'cancelled' or state != 'draft' or transfer_type != 'issue'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
+                    <button name="action_manager_confirm" string="Принять сдачу" type="object" class="btn-primary" invisible="request_state == 'cancelled' or state != 'draft' or transfer_type == 'issue'" groups="cabochon_base.group_cabochon_manager,cabochon_base.group_cabochon_finished_manager,cabochon_base.group_cabochon_admin"/>
+                    <button name="action_worker_confirm" string="Принять" type="object" class="btn-primary" invisible="request_state == 'cancelled' or state != 'manager_confirmed' or transfer_type != 'issue' or not can_worker_confirm" groups="cabochon_base.group_cabochon_user"/>
+                    <button name="action_worker_reject" string="Отказаться от выдачи" type="object" invisible="request_state == 'cancelled' or state != 'manager_confirmed' or transfer_type != 'issue' or not can_worker_confirm" groups="cabochon_base.group_cabochon_user"/>
+                    <button name="action_worker_confirm" string="Подтвердить сдачу" type="object" class="btn-primary" invisible="request_state == 'cancelled' or state != 'manager_confirmed' or transfer_type == 'issue' or not can_worker_confirm" groups="cabochon_base.group_cabochon_user"/>
+                    <button name="action_worker_reject" string="Отказаться от сдачи" type="object" invisible="request_state == 'cancelled' or state != 'manager_confirmed' or transfer_type == 'issue' or not can_worker_confirm" groups="cabochon_base.group_cabochon_user"/>
                     <field name="state" widget="statusbar"/>
                 </header>
+                <div class="alert alert-warning" role="alert" invisible="request_state != 'cancelled'">Заявка отменена. Выдача и сдача по этому документу недоступны.</div>
                 <sheet>
+                    <field name="request_state" invisible="1"/>
                     <div class="oe_title">
                         <label for="name"/>
                         <h1><field name="name"/></h1>
@@ -909,14 +915,19 @@
                             <field name="show_shape_fields" invisible="1"/>
                             <field name="show_form_type_fields" invisible="1"/>
                             <field name="show_return_loss_fields" invisible="1"/>
+                            <field name="show_task_fields" invisible="1"/>
                             <field name="can_worker_confirm" invisible="1"/>
                             <field name="transfer_date"/>
                             <field name="is_final_receipt" invisible="transfer_type == 'issue'" readonly="state != 'draft'"/>
+                            <field name="is_toluene_wash" invisible="1"/>
+                            <field name="toluene_consumption_recorded" invisible="1"/>
+                            <field name="toluene_consumption_l" invisible="not is_toluene_wash" readonly="state != 'draft'"/>
+                            <div class="text-muted" invisible="not is_toluene_wash or state != 'confirmed' or toluene_consumption_recorded">Расход толуола не указан.</div>
                             <field name="weight_before_g" invisible="transfer_type == 'issue'" readonly="1"/>
                             <field name="manager_confirmed_by_id" invisible="state == 'draft'"/>
                             <field name="manager_confirmed_at" invisible="state == 'draft'"/>
-                            <field name="worker_confirmed_by_id" invisible="state != 'confirmed'"/>
-                            <field name="worker_confirmed_at" invisible="state != 'confirmed'"/>
+                            <field name="worker_confirmed_by_id" invisible="request_state == 'cancelled' or state != 'confirmed'"/>
+                            <field name="worker_confirmed_at" invisible="request_state == 'cancelled' or state != 'confirmed'"/>
                             <field name="admin_action_note" invisible="not admin_action_note"/>
                             <field name="total_weight_g"/>
                             <field name="total_defect_weight_g"/>
@@ -926,24 +937,31 @@
                             <field name="total_lost_weight_g"/>
                         </group>
                     </group>
-                    <field name="line_ids" readonly="state != 'draft'">
+                    <field name="line_ids" readonly="state != 'draft'" class="o_cabochon_list">
                         <list editable="bottom" delete="1">
                             <field name="transfer_type" column_invisible="1"/>
                             <field name="lot_id"/>
+                            <field name="task_operation_id" column_invisible="parent.transfer_type != 'receipt' or not parent.show_task_fields"/>
+                            <field name="show_color_fields" column_invisible="1"/>
+                            <field name="require_color_fields" column_invisible="1"/>
+                            <field name="show_size_fields" column_invisible="1"/>
+                            <field name="show_shape_fields" column_invisible="1"/>
+                            <field name="show_form_type_fields" column_invisible="1"/>
+                            <field name="show_return_loss_fields" column_invisible="1"/>
                             <field name="weight_before_g" column_invisible="1" readonly="1"/>
                             <field name="weight_g" string="Фактический вес, г"/>
-                            <field name="detected_defect_weight_g"/>
-                            <field name="made_defect_weight_g"/>
-                            <field name="defect_weight_g" readonly="1"/>
-                            <field name="return_loss_weight_g" column_invisible="not parent.show_return_loss_fields"/>
-                            <field name="lost_weight_g" readonly="transfer_type != 'issue'" force_save="1"/>
-                            <field name="color_id" column_invisible="not parent.show_color_fields" required="parent.show_color_fields"/>
+                            <field name="detected_defect_weight_g" column_invisible="parent.transfer_type == 'issue'"/>
+                            <field name="made_defect_weight_g" column_invisible="parent.transfer_type == 'issue'"/>
+                            <field name="defect_weight_g" readonly="1" optional="hide" column_invisible="parent.transfer_type == 'issue'"/>
+                            <field name="return_loss_weight_g" column_invisible="not parent.show_return_loss_fields" invisible="not show_return_loss_fields"/>
+                            <field name="lost_weight_g" readonly="1" force_save="1" column_invisible="parent.transfer_type == 'issue'"/>
+                            <field name="color_id" column_invisible="not parent.show_color_fields" invisible="not show_color_fields" required="require_color_fields"/>
                             <field name="eligible_stone_size_ids" column_invisible="1"/>
                             <field name="eligible_shape_ids" column_invisible="1"/>
                             <field name="eligible_form_type_ids" column_invisible="1"/>
-                            <field name="form_type_id" column_invisible="not parent.show_form_type_fields" required="parent.show_form_type_fields" domain="[('id', 'in', eligible_form_type_ids)]"/>
-                            <field name="shape_id" column_invisible="not parent.show_shape_fields" required="parent.show_shape_fields" domain="[('id', 'in', eligible_shape_ids)]"/>
-                            <field name="stone_size_id" column_invisible="not parent.show_size_fields" required="parent.show_size_fields" domain="[('id', 'in', eligible_stone_size_ids)]"/>
+                            <field name="form_type_id" column_invisible="not parent.show_form_type_fields" invisible="not show_form_type_fields" required="show_form_type_fields" domain="[('id', 'in', eligible_form_type_ids)]"/>
+                            <field name="shape_id" column_invisible="not parent.show_shape_fields" invisible="not show_shape_fields" required="show_shape_fields" domain="[('id', 'in', eligible_shape_ids)]"/>
+                            <field name="stone_size_id" column_invisible="not parent.show_size_fields" invisible="not show_size_fields" required="show_size_fields" domain="[('id', 'in', eligible_stone_size_ids)]"/>
                             <field name="new_lot_id" readonly="1" column_invisible="parent.state != 'confirmed'"/>
                         </list>
                     </field>
@@ -1065,6 +1083,7 @@
                         <field name="manager_id"/>
                         <field name="performed_by_id"/>
                         <field name="customer_id"/>
+                        <field name="contractor_id"/>
                         <field name="applied_loss_norm_percent"/>
                         <field name="norm_snapshot_migrated"/>
                         <field name="correction_of_id"/>
@@ -1115,26 +1134,26 @@
         <field name="name">cabochon.worker.operation.quality.report.list</field>
         <field name="model">cabochon.worker.operation.quality.report</field>
         <field name="arch" type="xml">
-            <list decoration-danger="loss_over_norm_percent &gt; 0">
+            <list class="o_cabochon_list" decoration-danger="loss_over_norm_percent &gt; 0">
                 <field name="worker_id"/>
                 <field name="operation_names"/>
-                <field name="issued_weight_g" sum="Выдано"/>
-                <field name="received_weight_g" sum="Сдано"/>
+                <field name="issued_weight_g" sum="Выдано" optional="hide"/>
+                <field name="received_weight_g" sum="Сдано" optional="hide"/>
                 <field name="defect_weight_g" sum="Брак"/>
-                <field name="detected_defect_weight_g" sum="Выявленный брак"/>
-                <field name="made_defect_weight_g" sum="Сделанный брак"/>
+                <field name="detected_defect_weight_g" sum="Выявленный брак" optional="hide"/>
+                <field name="made_defect_weight_g" sum="Сделанный брак" optional="hide"/>
                 <field name="lost_weight_g" sum="Потери"/>
                 <field name="defect_percent"/>
                 <field name="loss_percent"/>
-                <field name="total_loss_percent"/>
-                <field name="expected_loss_percent"/>
+                <field name="total_loss_percent" optional="hide"/>
+                <field name="expected_loss_percent" optional="hide"/>
                 <field name="loss_over_norm_percent"/>
-                <field name="avg_defect_percent"/>
-                <field name="avg_loss_percent"/>
-                <field name="min_defect_percent"/>
-                <field name="max_defect_percent"/>
-                <field name="min_loss_percent"/>
-                <field name="max_loss_percent"/>
+                <field name="avg_defect_percent" optional="hide"/>
+                <field name="avg_loss_percent" optional="hide"/>
+                <field name="min_defect_percent" optional="hide"/>
+                <field name="max_defect_percent" optional="hide"/>
+                <field name="min_loss_percent" optional="hide"/>
+                <field name="max_loss_percent" optional="hide"/>
             </list>
         </field>
     </record>
@@ -1248,19 +1267,19 @@
         <field name="name">cabochon.worker.load.report.list</field>
         <field name="model">cabochon.worker.load.report</field>
         <field name="arch" type="xml">
-            <list>
+            <list class="o_cabochon_list">
                 <field name="worker_id"/>
-                <field name="report_date"/>
+                <field name="report_date" optional="hide"/>
                 <field name="active_request_count" sum="Активные заявки"/>
-                <field name="total_request_count" sum="Всего заявок"/>
+                <field name="total_request_count" sum="Всего заявок" optional="hide"/>
                 <field name="planned_weight_g" sum="Плановый вес"/>
                 <field name="issued_weight_g" sum="Выдано"/>
                 <field name="received_weight_g" sum="Сдано"/>
-                <field name="detected_defect_weight_g" sum="Выявленный брак"/>
-                <field name="made_defect_weight_g" sum="Сделанный брак"/>
-                <field name="lost_weight_g" sum="Потери"/>
-                <field name="avg_duration_hours"/>
-                <field name="last_activity_at"/>
+                <field name="detected_defect_weight_g" sum="Выявленный брак" optional="hide"/>
+                <field name="made_defect_weight_g" sum="Сделанный брак" optional="hide"/>
+                <field name="lost_weight_g" sum="Потери" optional="hide"/>
+                <field name="avg_duration_hours" optional="hide"/>
+                <field name="last_activity_at" optional="hide"/>
             </list>
         </field>
     </record>

@@ -155,6 +155,7 @@ class CabochonProductionRequest(models.Model):
         string="Сделанный брак, г", compute="_compute_weights", store=True, digits=WEIGHT_DIGITS
     )
     lost_weight_g = fields.Float(string="Потери, г", compute="_compute_weights", store=True, digits=WEIGHT_DIGITS)
+    toluene_consumption_l = fields.Float(string="Расход толуола, л", compute="_compute_toluene_consumption", digits=(16, 3))
     confirmed_at = fields.Datetime(string="Подтверждена")
     issued_at = fields.Datetime(string="Выдана")
     started_at = fields.Datetime(string="Начата")
@@ -377,6 +378,13 @@ class CabochonProductionRequest(models.Model):
             )
             request.lost_weight_g = sum(request.movement_ids.filtered(lambda item: item.kind == "loss").mapped("weight_g"))
 
+    @api.depends("receipt_ids.state", "receipt_ids.toluene_consumption_recorded", "receipt_ids.toluene_consumption_l")
+    def _compute_toluene_consumption(self):
+        for request in self:
+            request.toluene_consumption_l = sum(request.receipt_ids.filtered(
+                lambda transfer: transfer.state == "confirmed" and transfer.toluene_consumption_recorded
+            ).mapped("toluene_consumption_l"))
+
     @api.depends("started_at", "closed_at")
     def _compute_actual_duration_hours(self):
         for request in self:
@@ -574,6 +582,8 @@ class CabochonProductionRequest(models.Model):
             if len(all_source_lots) != 1 + len(request.additional_source_line_ids):
                 raise ValidationError("Один мешок нельзя добавить в заявку дважды.")
             operation_codes = set(request.operation_ids.mapped("code"))
+            if request.source_lot_id.is_return_loss_lot and request.operation_ids.sorted("sequence")[0].code != "press":
+                raise ValidationError("Обрезки раскроя возвращаются в работу через пресс.")
             if request.additional_source_line_ids and not (operation_codes & TUBE_OPERATION_CODES):
                 raise ValidationError("Несколько исходных мешков разрешены только для операции труб.")
             if request.additional_source_line_ids and operation_codes & TUBE_OPERATION_CODES:
@@ -619,6 +629,7 @@ class CabochonProductionRequest(models.Model):
                 else request.source_lot_id._completed_operation_codes()
                 if request.source_lot_id
                 else set(),
+                enforce_prerequisites=not request.source_lot_id.is_return_loss_lot,
             )
             if route_error:
                 raise ValidationError(route_error)
@@ -684,6 +695,7 @@ class CabochonProductionRequest(models.Model):
         for request in self:
             if request.state != "draft":
                 continue
+            request._check_request_values()
             request._validate_task_lines()
             request._sync_operation_lines()
             request._ensure_issue_transfer()
@@ -737,6 +749,9 @@ class CabochonProductionRequest(models.Model):
             if request.movement_ids:
                 raise UserError("Заявку с движениями нельзя отменить. Создайте корректирующие движения.")
             request._workflow_write({"state": "cancelled"})
+            for transfer in request.receipt_ids:
+                transfer._clear_manager_activities()
+                transfer._clear_worker_activities()
             request._clear_overdue_activities()
             request._clear_loss_over_norm_activities()
 
@@ -1207,6 +1222,7 @@ class CabochonProductionRequestSourceLine(models.Model):
             if request.state != "draft":
                 raise UserError("Строки заявки можно менять только в черновике.")
         lines = super().create(vals_list)
+        lines.mapped("request_id")._check_request_values()
         lines.mapped("request_id")._reserve_source_lots()
         return lines
 
@@ -1215,6 +1231,7 @@ class CabochonProductionRequestSourceLine(models.Model):
         if any(request.state != "draft" for request in requests):
             raise UserError("Строки заявки можно менять только в черновике.")
         result = super().write(vals)
+        requests._check_request_values()
         requests._reserve_source_lots()
         return result
 
@@ -1223,6 +1240,7 @@ class CabochonProductionRequestSourceLine(models.Model):
         if any(request.state != "draft" for request in requests):
             raise UserError("Строки заявки можно менять только в черновике.")
         result = super().unlink()
+        requests._check_request_values()
         requests._reserve_source_lots()
         return result
 
@@ -1256,6 +1274,7 @@ class CabochonProductionRequestOperationLine(models.Model):
         ondelete="cascade",
         index=True,
     )
+    request_state = fields.Selection(related="request_id.state", string="Статус заявки")
     operation_id = fields.Many2one(
         "cabochon.manufacturing.operation",
         string="Операция",
@@ -1275,7 +1294,7 @@ class CabochonProductionRequestOperationLine(models.Model):
     )
     planned_weight_g = fields.Float(
         string="Плановый вес, г",
-        related="request_id.planned_weight_g",
+        related="request_id.total_planned_weight_g",
         readonly=True,
         digits=WEIGHT_DIGITS,
     )
@@ -1306,6 +1325,7 @@ class CabochonProductionRequestOperationLine(models.Model):
             line.received_weight_g = sum(movements.mapped("weight_g"))
 
     def action_start(self, started_at=False):
+        self._check_operation_action()
         started_at = started_at or fields.Datetime.now()
         for line in self:
             if line.state == "pending":
@@ -1315,10 +1335,9 @@ class CabochonProductionRequestOperationLine(models.Model):
                         "started_at": line.started_at or started_at,
                     }
                 )
-                if not line.request_id.started_at:
-                    line.request_id.started_at = started_at
 
     def action_finish(self, finished_at=False):
+        self._check_operation_action()
         finished_at = finished_at or fields.Datetime.now()
         for line in self:
             if line.state != "done":
@@ -1332,6 +1351,15 @@ class CabochonProductionRequestOperationLine(models.Model):
                 if not line.started_at:
                     values["started_at"] = line_finished_at
                 line.write(values)
+
+    def _check_operation_action(self):
+        self.check_access("write")
+        for request in self.mapped("request_id"):
+            issue_ready = request.issue_id.state == "confirmed" or (
+                is_internal(self.env, "cabochon_transfer_internal_update") and request.issue_id.state == "manager_confirmed"
+            )
+            if request.state not in ("in_progress", "partially_done") or not issue_ready:
+                raise UserError("Операции можно начинать и завершать только после приемки материала работником по действующей заявке.")
 
     @api.constrains("started_at", "finished_at")
     def _check_operation_line_dates(self):
