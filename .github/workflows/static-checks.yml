@@ -1,0 +1,20 @@
+name: Cabochon static checks
+on:
+  push:
+  pull_request:
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Ruff
+        run: python -m pip install ruff
+      - name: Ruff
+        run: python -m ruff check addons/cabochon_base addons/cabochon_manufacturing scripts
+      - name: Compile Python
+        run: python -m compileall -q addons/cabochon_base addons/cabochon_manufacturing scripts
+      - name: XML well-formedness
+        run: python scripts/validate_xml.py
